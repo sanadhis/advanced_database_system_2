@@ -22,9 +22,29 @@ class CubeOperator(reducers: Int) {
     val index = groupingAttributes.map(x => schema.indexOf(x))
     val indexAgg = schema.indexOf(aggAttribute)
 
-    //TODO Task 1
+    // aggregate functions here
+    val sum = (value1: Double, value2: Double) => value1 + value2
+    val max = (value1: Double, value2: Double) => if (value1 > value2) value1 else value2
+    val min = (value1: Double, value2: Double) => if (value1 < value2) value1 else value2
+    val average = (left: (Double, Double), right: (Double, Double)) => (left._1 + right._1, left._2 + right._2)
 
-    null
+    // begin phase 1 of MRDataCube
+    val relatedAttributes = rdd.map( 
+      row => ( (index.map(i => row(i) )).mkString("-"), row.getInt(indexAgg).toDouble 
+        ) 
+      )
+    val reducedBottomCell = relatedAttributes.reduceByKey(sum)
+
+    // begin phase 2 of MRDataCube
+    val partialUpperCell  = reducedBottomCell.flatMap(
+      row => (1 to groupingAttributes.length).toList.flatMap( 
+        e => row._1.split("-").combinations(e).toList.map(
+          part => (part.mkString("-"), row._2) ) 
+          )
+        )
+    val reducerFinal      = partialUpperCell.reduceByKey(sum)
+
+    reducerFinal
   }
 
   def cube_naive(dataset: Dataset, groupingAttributes: List[String], aggAttribute: String, agg: String): RDD[(String, Double)] = {
