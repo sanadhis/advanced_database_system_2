@@ -26,23 +26,36 @@ class CubeOperator(reducers: Int) {
     val sum = (value1: Double, value2: Double) => value1 + value2
     val max = (value1: Double, value2: Double) => if (value1 > value2) value1 else value2
     val min = (value1: Double, value2: Double) => if (value1 < value2) value1 else value2
-    val average = (left: (Double, Double), right: (Double, Double)) => (left._1 + right._1, left._2 + right._2)
+    val avg = (left: (Double, Double), right: (Double, Double)) => (left._1 + right._1, left._2 + right._2)
 
     // begin phase 1 of MRDataCube
-    val relatedAttributes = rdd.map( 
-      row => ( (index.map(i => row(i) )).mkString("-"), row.getInt(indexAgg).toDouble 
-        ) 
-      )
-    val reducedBottomCell = relatedAttributes.repartition(reducers).reduceByKey(sum)
+    val relatedAttributes = rdd.map(row => 
+      if (agg == "COUNT")  ( (index.map(i => row(i) )).mkString("-"), 1.toDouble )
+      else if (agg == "AVG")  ( (index.map(i => row(i) )).mkString("-"), row.getInt(indexAgg).toDouble ) 
+      else  ( (index.map(i => row(i) )).mkString("-"), row.getInt(indexAgg).toDouble ) 
+    )
+
+    val reducedBottomCell = 
+      if (agg == "COUNT") relatedAttributes.repartition(reducers).reduceByKey(sum)
+      else if (agg == "MAX") relatedAttributes.repartition(reducers).reduceByKey(max)
+      else if (agg == "MIN") relatedAttributes.repartition(reducers).reduceByKey(min)
+      else if (agg == "AVG") relatedAttributes.repartition(reducers).reduceByKey(sum)
+      else relatedAttributes.repartition(reducers).reduceByKey(sum)
 
     // begin phase 2 of MRDataCube
     val partialUpperCell  = reducedBottomCell.flatMap(
       row => (0 to groupingAttributes.length).toList.flatMap( 
-        e => row._1.split("-").combinations(e).toList.map(
-          part => (part.mkString("-"), row._2) ) 
+        n => row._1.split("-").combinations(n).toList.map(
+          part => if (agg!="AVG") (part.mkString("-"), row._2) else (part.mkString("-"), row._2) ) 
           )
         )
-    val reducerFinal      = partialUpperCell.repartition(reducers).reduceByKey(sum)
+    
+    val reducerFinal = 
+      if (agg == "COUNT") partialUpperCell.repartition(reducers).reduceByKey(sum)
+      else if (agg == "MAX") partialUpperCell.repartition(reducers).reduceByKey(max)
+      else if (agg == "MIN") partialUpperCell.repartition(reducers).reduceByKey(min)
+      else if (agg == "AVG") partialUpperCell.repartition(reducers).reduceByKey(sum)
+      else partialUpperCell.repartition(reducers).reduceByKey(sum)
 
     reducerFinal
   }
