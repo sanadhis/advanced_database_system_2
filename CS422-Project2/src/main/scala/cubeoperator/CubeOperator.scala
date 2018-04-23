@@ -33,16 +33,16 @@ class CubeOperator(reducers: Int) {
       row => ( (index.map(i => row(i) )).mkString("-"), row.getInt(indexAgg).toDouble 
         ) 
       )
-    val reducedBottomCell = relatedAttributes.reduceByKey(sum)
+    val reducedBottomCell = relatedAttributes.repartition(reducers).reduceByKey(sum)
 
     // begin phase 2 of MRDataCube
     val partialUpperCell  = reducedBottomCell.flatMap(
-      row => (1 to groupingAttributes.length).toList.flatMap( 
+      row => (0 to groupingAttributes.length).toList.flatMap( 
         e => row._1.split("-").combinations(e).toList.map(
           part => (part.mkString("-"), row._2) ) 
           )
         )
-    val reducerFinal      = partialUpperCell.reduceByKey(sum)
+    val reducerFinal      = partialUpperCell.repartition(reducers).reduceByKey(sum)
 
     reducerFinal
   }
