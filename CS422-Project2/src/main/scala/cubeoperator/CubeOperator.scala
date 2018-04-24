@@ -62,8 +62,37 @@ class CubeOperator(reducers: Int) {
 
   def cube_naive(dataset: Dataset, groupingAttributes: List[String], aggAttribute: String, agg: String): RDD[(String, Double)] = {
 
-    //TODO naive algorithm for cube computation
-    null
+    val rdd = dataset.getRDD()
+    val schema = dataset.getSchema()
+
+    val index = groupingAttributes.map(x => schema.indexOf(x))
+    val indexAgg = schema.indexOf(aggAttribute)
+
+    // aggregate functions here
+    val sum = (value1: Double, value2: Double) => value1 + value2
+    val max = (value1: Double, value2: Double) => if (value1 > value2) value1 else value2
+    val min = (value1: Double, value2: Double) => if (value1 < value2) value1 else value2
+    val avg = (left: (Double, Double), right: (Double, Double)) => (left._1 + right._1, left._2 + right._2)
+
+    // map
+    val mappedAttributes = rdd.flatMap(row => 
+        (0 to index.length).toList.flatMap(
+          n => index.map(i => row(i) ).combinations(n).toList.map(
+            part => if (agg=="COUNT") (part.mkString("-"), 1.toDouble) 
+                    else if (agg=="AVG") (part.mkString("-"), row.getInt(indexAgg).toDouble ) 
+                    else (part.mkString("-"), row.getInt(indexAgg).toDouble )
+        )
+      )
+    )
+
+    val reducedAttributes = 
+      if (agg == "COUNT") mappedAttributes.repartition(reducers).reduceByKey(sum)
+      else if (agg == "MAX") mappedAttributes.repartition(reducers).reduceByKey(max)
+      else if (agg == "MIN") mappedAttributes.repartition(reducers).reduceByKey(min)
+      else if (agg == "AVG") mappedAttributes.repartition(reducers).reduceByKey(sum)
+      else mappedAttributes.repartition(reducers).reduceByKey(sum)
+
+    reducedAttributes
   }
 
 }
