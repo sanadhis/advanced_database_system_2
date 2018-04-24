@@ -22,12 +22,6 @@ class CubeOperator(reducers: Int) {
     val index = groupingAttributes.map(x => schema.indexOf(x))
     val indexAgg = schema.indexOf(aggAttribute)
 
-    // aggregate functions here
-    val sum = (value1: Double, value2: Double) => value1 + value2
-    val max = (value1: Double, value2: Double) => if (value1 > value2) value1 else value2
-    val min = (value1: Double, value2: Double) => if (value1 < value2) value1 else value2
-    val avg = (left: (Double, Double), right: (Double, Double)) => (left._1 + right._1, left._2 + right._2)
-
     // begin phase 1 of MRDataCube
     val relatedAttributes: RDD[Any] = rdd.map(row => 
       if (agg == "COUNT")  ( (index.map(i => row(i) )).mkString("-"), 1.toDouble )
@@ -35,12 +29,10 @@ class CubeOperator(reducers: Int) {
       else  ( (index.map(i => row(i) )).mkString("-"), row.getInt(indexAgg).toDouble ) 
     )
 
-    val reducedBottomCell = 
-      if (agg == "COUNT") relatedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(sum, reducers)
-      else if (agg == "MAX") relatedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(max, reducers)
-      else if (agg == "MIN") relatedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(min, reducers)
-      else if (agg == "AVG") relatedAttributes.asInstanceOf[RDD[(String, (Double, Double) )]].reduceByKey(avg, reducers)
-      else relatedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(sum, reducers)
+    val reducedBottomCell = agg match {
+      case "AVG" => relatedAttributes.asInstanceOf[RDD[(String, (Double, Double) )]].reduceByKey(averageFunction, reducers)
+      case _     => relatedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(aggFunction(agg), reducers)
+    }
 
     // begin phase 2 of MRDataCube
     val partialUpperCell  = reducedBottomCell.flatMap(
@@ -51,12 +43,10 @@ class CubeOperator(reducers: Int) {
         )
     )
 
-    val reducerFinal: RDD[(String, Double)] = 
-      if (agg == "COUNT") partialUpperCell.asInstanceOf[RDD[(String, Double)]].reduceByKey(sum, reducers)
-      else if (agg == "MAX") partialUpperCell.asInstanceOf[RDD[(String, Double)]].reduceByKey(max, reducers)
-      else if (agg == "MIN") partialUpperCell.asInstanceOf[RDD[(String, Double)]].reduceByKey(min, reducers)
-      else if (agg == "AVG") partialUpperCell.asInstanceOf[RDD[(String, (Double, Double) )]].reduceByKey(avg, reducers).mapValues{ case (sum , count) => sum / count}
-      else partialUpperCell.asInstanceOf[RDD[(String, Double)]].reduceByKey(sum, reducers)
+    val reducerFinal: RDD[(String, Double)] = agg match {
+      case "AVG" => partialUpperCell.asInstanceOf[RDD[(String, (Double, Double) )]].reduceByKey(averageFunction, reducers).mapValues{ case (sum , count) => sum / count}
+      case _     => partialUpperCell.asInstanceOf[RDD[(String, Double)]].reduceByKey(aggFunction(agg), reducers)
+    }
 
     reducerFinal
   }
@@ -69,12 +59,6 @@ class CubeOperator(reducers: Int) {
     val index = groupingAttributes.map(x => schema.indexOf(x))
     val indexAgg = schema.indexOf(aggAttribute)
 
-    // aggregate functions here
-    val sum = (value1: Double, value2: Double) => value1 + value2
-    val max = (value1: Double, value2: Double) => if (value1 > value2) value1 else value2
-    val min = (value1: Double, value2: Double) => if (value1 < value2) value1 else value2
-    val avg = (left: (Double, Double), right: (Double, Double)) => (left._1 + right._1, left._2 + right._2)
-
     // map
     val mappedAttributes: RDD[Any] = rdd.flatMap(row => 
         (0 to index.length).toList.flatMap(
@@ -86,14 +70,23 @@ class CubeOperator(reducers: Int) {
       )
     )
 
-    val reducedAttributes: RDD[(String, Double)] = 
-      if (agg == "COUNT") mappedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(sum, reducers)
-      else if (agg == "MAX") mappedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(max, reducers)
-      else if (agg == "MIN") mappedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(min, reducers)
-      else if (agg == "AVG") mappedAttributes.asInstanceOf[RDD[(String, (Double, Double) )]].reduceByKey(avg, reducers).mapValues{ case (sum , count) => sum / count}
-      else mappedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(sum, reducers)
+    val reducedAttributes: RDD[(String, Double)] = agg match {
+      case "AVG" => mappedAttributes.asInstanceOf[RDD[(String, (Double, Double) )]].reduceByKey(averageFunction, reducers).mapValues{ case (sum , count) => sum / count}
+      case _     => mappedAttributes.asInstanceOf[RDD[(String, Double)]].reduceByKey(aggFunction(agg), reducers)
+    }
 
     reducedAttributes
+  }
+
+  // aggregate functions here
+  def averageFunction : ((Double, Double), (Double, Double)) => (Double, Double) = {
+    (left: (Double, Double), right: (Double, Double)) => (left._1 + right._1, left._2 + right._2)
+  }
+
+  def aggFunction(agg: String) : (Double, Double) => Double = agg match {
+      case "MIN" => (value1: Double, value2: Double) => if (value1 < value2) value1 else value2
+      case "MAX" => (value1: Double, value2: Double) => if (value1 > value2) value1 else value2
+      case _     => (value1: Double, value2: Double) => value1 + value2
   }
 
 }
