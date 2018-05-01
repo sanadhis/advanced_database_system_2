@@ -55,6 +55,13 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
 
   //  create a StreamingContext, the main entry point for all streaming functionality.
   val ssc = new StreamingContext(sparkConf, Seconds(seconds));
+  
+  //  reduce logs verbosity
+  val sc = ssc.sparkContext
+  sc.setLogLevel("ERROR")
+
+  var globalTopMap = Map[String, Int]()
+  val merge = (ip1: String, ip2: String) => ip1 + "," + ip2
 
   def consume() {
 
@@ -65,7 +72,34 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
     val words = linesDStream.map(x => (x.split("\t")(0), x.split("\t")(1)))
 
     if (execType.contains("precise")) {
-      //TODO : Implement precise calculation
+      val mapperIP = words.flatMap(ip => List(ip._1, ip._2))
+      val countIP = mapperIP.map(ip => (ip,1)) 
+      val sumCountIP = countIP.reduceByKey(_ + _)
+      
+      // val topKIP = sumCountIP.foreachRDD( rdd => {
+      //   val batchTopK = rdd.map({
+      //     case (ip, count) => (count, ip)
+      //   }).reduceByKey(merge).sortByKey(ascending=false).take(TOPK)
+      //   println("This batch: %s".format(batchTopK.mkString("[", ",", "]")))
+      // })
+
+      sumCountIP.foreachRDD( rdd => {
+        val batchSeq = rdd.collect().toSeq
+        globalTopMap = (globalTopMap.toSeq ++ batchSeq).groupBy(_._1).mapValues(_.map(_._2).toList.sum)
+
+        val globalTopK = globalTopMap.toSeq.sortBy(_._2).reverse.slice(0, TOPK).map({
+          case (ip, count) => (count, ip)
+        })
+        
+        val batchTopK = rdd.map({
+          case (ip, count) => (count, ip)
+        }).sortByKey(ascending=false).take(TOPK)
+
+        println("This batch: %s".format(batchTopK.mkString("[", ",", "]")))
+        println("Global batch: %s".format(globalTopK.mkString("[", ",", "]")))
+        
+      })
+
     } else if (execType.contains("approx")) {
       //TODO : Implement approx calculation (you will have to implement the CM-sketch as well
     }
