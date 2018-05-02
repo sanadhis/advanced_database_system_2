@@ -35,8 +35,6 @@ import java.io.BufferedWriter;
 import java.io.OutputStreamWriter;
 import java.net.URI;
 
-import org.apache.spark.util.sketch.CountMinSketch
-
 class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
 
   val sparkconf = sparkConf;
@@ -52,6 +50,13 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
 
   // precise Or approx
   val execType = args(3);
+
+  // for count-min sketch
+  val wCounters = args(4).toInt;
+  val dRows = args(5).toInt;
+
+  val countMinSketch = new CountMinSketch(wCounters, dRows)
+  val globalTopCMS = countMinSketch.zero()
 
   //  create a StreamingContext, the main entry point for all streaming functionality.
   val ssc = new StreamingContext(sparkConf, Seconds(seconds));
