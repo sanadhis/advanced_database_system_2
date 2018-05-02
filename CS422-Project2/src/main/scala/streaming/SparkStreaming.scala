@@ -69,19 +69,11 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
     val linesDStream = ssc.textFileStream(inputDirectory);
 
     // parse the stream. (line -> (IP1, IP2))
-    val words = linesDStream.map(x => (x.split("\t")(0), x.split("\t")(1)))
+    val words = linesDStream.map(x => "(" + x.split("\t")(0) + "," + x.split("\t")(1) + ")")
 
     if (execType.contains("precise")) {
-      val mapperIP = words.flatMap(ip => List(ip._1, ip._2))
-      val countIP = mapperIP.map(ip => (ip,1)) 
-      val sumCountIP = countIP.reduceByKey(_ + _)
-      
-      // val topKIP = sumCountIP.foreachRDD( rdd => {
-      //   val batchTopK = rdd.map({
-      //     case (ip, count) => (count, ip)
-      //   }).reduceByKey(merge).sortByKey(ascending=false).take(TOPK)
-      //   println("This batch: %s".format(batchTopK.mkString("[", ",", "]")))
-      // })
+      val mapperIP = words.map(ip => (ip,1))
+      val sumCountIP = mapperIP.reduceByKey(_ + _)
 
       sumCountIP.foreachRDD( rdd => {
         val batchSeq = rdd.collect().toSeq
