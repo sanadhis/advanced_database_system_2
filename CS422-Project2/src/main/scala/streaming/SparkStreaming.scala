@@ -51,13 +51,6 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
   // precise Or approx
   val execType = args(3);
 
-  // for count-min sketch
-  val wCounters = args(4).toInt;
-  val dRows = args(5).toInt;
-
-  val countMinSketch = new CountMinSketch(wCounters, dRows)
-  val globalTopCMS = countMinSketch.zero()
-
   //  create a StreamingContext, the main entry point for all streaming functionality.
   val ssc = new StreamingContext(sparkConf, Seconds(seconds));
   
@@ -98,7 +91,31 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
       })
 
     } else if (execType.contains("approx")) {
-      //TODO : Implement approx calculation (you will have to implement the CM-sketch as well
+      // for count-min sketch
+      val wCounters = args(4).toInt
+      val dRows = args(5).toInt
+
+      val countMinSketch = new CountMinSketch(wCounters, dRows)
+      val globalTopCMS = countMinSketch.zero()
+      
+      val mapperIP = words.mapPartitions(ips => {
+        ips.map(ip => countMinSketch.map(ip))
+      })
+      val sumCountIP = mapperIP.reduce(_ ++ _)
+
+      sumCountIP.foreachRDD( rdd => {
+        if (rdd.count() != 0){
+          val batchSeq = rdd.first()
+
+          // val batchTopK = batchSeq.getIps.map( ip =>
+          //   (ip -> batchSeq.estimate(ip))).toSeq.sortBy(_._2).reverse.slice(0,TOPK).map({
+          //     case (ip, count) => (count, ip)
+          //   })
+          // println("[CMS] This batch: %s".format(batchTopK.mkString("[", ",", "]")))
+          println(rdd)
+        }
+      })
+    
     }
 
     // Start the computation
