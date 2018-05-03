@@ -1,13 +1,13 @@
 package streaming;
 import scala.util.hashing.MurmurHash3
 
-class CountMinSketch(width: Int, rows: Int, arr: Array[Array[Int]]) extends Serializable {
+class CountMinSketch(width: Int, rows: Int, arr: Array[Array[Int]], ipaddresses: Set[String]) extends Serializable {
     val wCounters = width
     val dRows = rows
     val cmsArray = arr
-    var ips = Set[String]()
+    val ips = ipaddresses
 
-    def this(width: Int, rows: Int) = this(width, rows, Array.ofDim[Int](width, rows))
+    def this(width: Int, rows: Int) = this(width, rows, Array.ofDim[Int](rows, width), Set[String]())
 
     def hash(ip: String, a: Int) : Int = {
         ( MurmurHash3.stringHash(ip, a) & Int.MaxValue) % wCounters
@@ -18,19 +18,18 @@ class CountMinSketch(width: Int, rows: Int, arr: Array[Array[Int]]) extends Seri
     }
 
     def map(ip: String) : CountMinSketch = {
-        ips += ip
-        val newCountMinSketch = new CountMinSketch(wCounters, dRows)
-        for { i <- 0 until dRows } newCountMinSketch.cmsArray(i)(hash(ip,i)) = 1
-        newCountMinSketch
+        val zeros = zero()
+        for { i <- 0 until dRows } zeros(i)(hash(ip,i)) = 1
+        new CountMinSketch(wCounters, dRows, zeros, Set[String](ip))
     }
 
     def ++(that: CountMinSketch) = {
-        (1 to dRows).foreach(i =>
-            (1 to wCounters).foreach( j => 
+        (0 until dRows).foreach(i =>
+            (0 until wCounters).foreach( j => 
                 this.cmsArray(i)(j) += that.cmsArray(i)(j)
             )
         )
-        new CountMinSketch(wCounters, dRows, this.cmsArray)
+        new CountMinSketch(wCounters, dRows, this.cmsArray, this.ips ++ that.ips)
     }
 
     def estimate(ip: String): Int = {
@@ -43,10 +42,8 @@ class CountMinSketch(width: Int, rows: Int, arr: Array[Array[Int]]) extends Seri
     }
 
     def getFrequencies(ip: String): List[Int] = {
-        (1 to dRows).toList.map( d =>
+        (0 until dRows).toList.map( d =>
             this.cmsArray(d)(hash(ip,d))
         )
     }
-
-    override def toString = "test with " + wCounters + " width"
 }

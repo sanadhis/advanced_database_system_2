@@ -70,24 +70,24 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
     val words = linesDStream.map(x => "(" + x.split("\t")(0) + "," + x.split("\t")(1) + ")")
 
     if (execType.contains("precise")) {
-      val mapperIP = words.map(ip => (ip,1))
-      val sumCountIP = mapperIP.reduceByKey(_ + _)
+      val preciseMapperIP = words.map(ip => (ip,1))
+      val preciseSumCountIP = preciseMapperIP.reduceByKey(_ + _)
 
-      sumCountIP.foreachRDD( rdd => {
-        val batchSeq = rdd.collect().toSeq
-        globalTopMap = (globalTopMap.toSeq ++ batchSeq).groupBy(_._1).mapValues(_.map(_._2).toList.sum)
+      preciseSumCountIP.foreachRDD( rdd => {
+        if(rdd.count() != 0){
+          val batchSeq = rdd.collect().toSeq
+          val batchTopK = rdd.map({
+            case (ip, count) => (count, ip)
+          }).sortByKey(ascending=false).take(TOPK)
 
-        val globalTopK = globalTopMap.toSeq.sortBy(_._2).reverse.slice(0, TOPK).map({
-          case (ip, count) => (count, ip)
-        })
-        
-        val batchTopK = rdd.map({
-          case (ip, count) => (count, ip)
-        }).sortByKey(ascending=false).take(TOPK)
-
-        println("This batch: %s".format(batchTopK.mkString("[", ",", "]")))
-        println("Global batch: %s".format(globalTopK.mkString("[", ",", "]")))
-        
+          globalTopMap = (globalTopMap.toSeq ++ batchSeq).groupBy(_._1).mapValues(_.map(_._2).toList.sum)
+          val globalTopK = globalTopMap.toSeq.sortBy(_._2).reverse.slice(0, TOPK).map({
+            case (ip, count) => (count, ip)
+          })
+          
+          println("This batch: %s".format(batchTopK.mkString("[", ",", "]")))
+          println("Global batch: %s".format(globalTopK.mkString("[", ",", "]")))
+        }
       })
 
     } else if (execType.contains("approx")) {
@@ -96,23 +96,27 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
       val dRows = args(5).toInt
 
       val countMinSketch = new CountMinSketch(wCounters, dRows)
-      val globalTopCMS = countMinSketch.zero()
+      var globalTopCMS = new CountMinSketch(wCounters, dRows)
       
-      val mapperIP = words.mapPartitions(ips => {
-        ips.map(ip => countMinSketch.map(ip))
-      })
-      val sumCountIP = mapperIP.reduce(_ ++ _)
+      val approxMapperIP = words.map(ip => countMinSketch.map(ip))
+      val approxSumCountIP = approxMapperIP.reduce(_ ++ _)
 
-      sumCountIP.foreachRDD( rdd => {
+      approxSumCountIP.foreachRDD( rdd => {
         if (rdd.count() != 0){
           val batchSeq = rdd.first()
+          val batchTopK = batchSeq.getIps.map( ip =>
+            (ip, batchSeq.estimate(ip))).toSeq.sortBy(_._2).reverse.slice(0,TOPK).map({
+              case (ip, count) => (count, ip)
+            })
 
-          // val batchTopK = batchSeq.getIps.map( ip =>
-          //   (ip -> batchSeq.estimate(ip))).toSeq.sortBy(_._2).reverse.slice(0,TOPK).map({
-          //     case (ip, count) => (count, ip)
-          //   })
-          // println("[CMS] This batch: %s".format(batchTopK.mkString("[", ",", "]")))
-          println(rdd)
+          globalTopCMS ++= batchSeq
+          val globalTopK = globalTopCMS.getIps.map( ip =>
+            (ip, globalTopCMS.estimate(ip))).toSeq.sortBy(_._2).reverse.slice(0,TOPK).map({
+              case (ip, count) => (count, ip)
+            })
+
+          println("[CMS] This batch: %s".format(batchTopK.mkString("[", ",", "]")))
+          println("[CMS] Global batch: %s".format(globalTopK.mkString("[", ",", "]")))
         }
       })
     
