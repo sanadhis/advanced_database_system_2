@@ -2,8 +2,9 @@ package thetajoin
 
 import org.apache.spark.rdd.RDD
 import org.slf4j.LoggerFactory
-import math.ceil
+import scala.math.ceil
 import scala.util.Sorting.quickSort
+import scala.math.abs
 
 
 class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends java.io.Serializable {
@@ -12,14 +13,14 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
   // random samples for each relation
   // helper structures, you are allowed
   // not to use them
-  var horizontalBoundaries = Array[Int]()
-  var verticalBoundaries = Array[Int]()
+  var horizontalBoundaries = List[Int]()
+  var verticalBoundaries = List[Int]()
   
   // number of values that fall in each partition
   // helper structures, you are allowed
   // not to use them
-  var horizontalCounts = Array[Int]()
-  var verticalCounts = Array[Int]()      
+  var horizontalCounts = List[Int]()
+  var verticalCounts = List[Int]()      
   
   /*
    * this method gets as input two datasets and the condition
@@ -50,22 +51,52 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val size2 = ceil(columnSize / factor).toInt
 
     // step 1: sampling
-    var horizontalBoundaries = rdd1Attribute.takeSample(false, size1)
-    var verticalBoundaries = rdd2Attribute.takeSample(false, size2)    
+    var horizontalSamples = rdd1Attribute.takeSample(false, size1)
+    var verticalSamples = rdd2Attribute.takeSample(false, size2)    
 
     while(
-      generalCheck(horizontalBoundaries)
-    ) { horizontalBoundaries = rdd1Attribute.takeSample(false, size1) }
+      generalCheck(horizontalSamples) || checkValue(horizontalSamples)
+    ) { horizontalSamples = rdd1Attribute.takeSample(false, size1) }
 
     while(
-      generalCheck(verticalBoundaries)
-    ) { verticalBoundaries = rdd2Attribute.takeSample(false, size2) }
+      generalCheck(verticalSamples) || checkValue(verticalSamples)
+    ) { verticalSamples = rdd2Attribute.takeSample(false, size2) }
 
-    quickSort(horizontalBoundaries)
-    quickSort(verticalBoundaries)
+    quickSort(horizontalSamples)
+    quickSort(verticalSamples)
 
-    horizontalBoundaries.foreach(e => println(e))
-    verticalBoundaries.foreach(e => println(e))
+    val horizontalSamplesMod = 0 +: horizontalSamples :+ Int.MaxValue
+    val verticalSamplesMod = 0 +: verticalSamples :+ Int.MaxValue
+
+    horizontalBoundaries = horizontalSamples.toList
+    verticalBoundaries = verticalSamples.toList
+
+    val horizontalBucket = (0 to horizontalBoundaries.size).toList.map( i =>
+      rdd1Attribute.filter(row => 
+        (row >= horizontalSamplesMod(i)) && (row < horizontalSamplesMod(i+1))
+      ).collect().toList
+    )
+
+    val verticalBucket = (0 to verticalBoundaries.size).toList.map( i =>
+      rdd1Attribute.filter(row => 
+        (row >= verticalSamplesMod(i)) && (row < verticalSamplesMod(i+1))
+      ).collect().toList
+    )
+
+    horizontalCounts = horizontalBucket.map( bucket =>
+      bucket.size
+    )
+
+    verticalCounts = verticalBucket.map( bucket =>
+      bucket.size
+    )
+
+    println("Horizontal boundaries: " + horizontalBoundaries)
+    println("Vertical boundaries: " + verticalBoundaries)
+    println("Horizontal count: " + horizontalCounts)
+    println("Vertical count: " + verticalCounts)
+
+    // done step 1
 
     null
   }  
@@ -106,8 +137,9 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     sample.contains(0) || (sample.size > sample.toSet.size) || sample.min < 10
   }
 
-  // def checkValue(sample: Array[Int]): Boolean = {
-  //   true
-  // }
+  def checkValue(sample: Array[Int]): Boolean = {
+    val min = sample.combinations(2).map(arr => math.abs(arr(0) - arr(1)) ).toArray.min
+    min < 100
+  }
 }
 
