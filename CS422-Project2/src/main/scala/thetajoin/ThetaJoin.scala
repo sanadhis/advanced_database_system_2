@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory
 import scala.math.ceil
 import scala.util.Sorting.quickSort
 import scala.math.abs
+import scala.math.sqrt
 
 
 class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends java.io.Serializable {
@@ -41,14 +42,12 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val rdd1Attribute = rdd1.map(row => row.getInt(index1))
     val rdd2Attribute = rdd2.map(row => row.getInt(index2))
 
-    var maxInput = 100
-    val r = reducers // same as reducers
-    val rowSize = rdd1Attribute.count()
-    val columnSize = rdd2Attribute.count()
-    val factor = Math.sqrt(rowSize * columnSize / reducers)
+    val overallRowSize = rdd1Attribute.count()
+    val overalColumnSize = rdd2Attribute.count()
+    val factor = Math.sqrt(overallRowSize * overalColumnSize / reducers)
   
-    val size1 = ceil(rowSize / factor).toInt
-    val size2 = ceil(columnSize / factor).toInt
+    val size1 = ceil(overallRowSize / factor).toInt
+    val size2 = ceil(overalColumnSize / factor).toInt
 
     // step 1: sampling
     var horizontalSamples = rdd1Attribute.takeSample(false, size1)
@@ -98,6 +97,25 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
 
     // done step 1
 
+    // step 2
+    // have to find the best maxInput, bucketAssignment
+    var maxInput = 100
+
+    val score = (maxInput to bucketsize by 100).toList.foreach(maxInputSize => {
+      val rowSize = factors(maxInputSize)
+      val columnSize = rowSize.map(size => maxInputSize / size)
+      println(rowSize)
+      println(columnSize)
+      rowSize.zip(columnSize).map( (i,j) => 
+        (0 until overallRowSize by i).foreach(x =>
+          (0 until overalColumnSize by j).foreach(y => 
+            // still don't know
+          )
+        )
+      )
+      0
+    })
+
     null
   }  
     
@@ -141,5 +159,12 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val min = sample.combinations(2).map(arr => math.abs(arr(0) - arr(1)) ).toArray.min
     min < 100
   }
+
+  def factors(num: Long) : List[Int] = {
+    (1 to sqrt(num).toInt).toList.filter{ divisor =>
+      num % divisor == 0
+    }
+  }
+  
 }
 
