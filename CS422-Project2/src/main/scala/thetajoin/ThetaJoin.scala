@@ -2,6 +2,8 @@ package thetajoin
 
 import org.apache.spark.rdd.RDD
 import org.slf4j.LoggerFactory
+import math.ceil
+import scala.util.Sorting.quickSort
 
 
 class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends java.io.Serializable {
@@ -35,7 +37,36 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val index1 = schema1.indexOf(attr1)
     val index2 = schema2.indexOf(attr2)        
     
-    // implement the algorithm
+    val rdd1Attribute = rdd1.map(row => row.getInt(index1))
+    val rdd2Attribute = rdd2.map(row => row.getInt(index2))
+
+    var maxInput = 100
+    val r = reducers // same as reducers
+    val rowSize = rdd1Attribute.count()
+    val columnSize = rdd2Attribute.count()
+    val factor = Math.sqrt(rowSize * columnSize / reducers)
+  
+    val size1 = ceil(rowSize / factor).toInt
+    val size2 = ceil(columnSize / factor).toInt
+
+    // step 1: sampling
+    var horizontalBoundaries = rdd1Attribute.takeSample(false, size1)
+    var verticalBoundaries = rdd2Attribute.takeSample(false, size2)    
+
+    while(
+      generalCheck(horizontalBoundaries)
+    ) { horizontalBoundaries = rdd1Attribute.takeSample(false, size1) }
+
+    while(
+      generalCheck(verticalBoundaries)
+    ) { verticalBoundaries = rdd2Attribute.takeSample(false, size2) }
+
+    quickSort(horizontalBoundaries)
+    quickSort(verticalBoundaries)
+
+    horizontalBoundaries.foreach(e => println(e))
+    verticalBoundaries.foreach(e => println(e))
+
     null
   }  
     
@@ -70,5 +101,13 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       case ">=" => value1 >= value2
     }
   }    
+
+  def generalCheck(sample: Array[Int]): Boolean = {
+    sample.contains(0) || (sample.size > sample.toSet.size) || sample.min < 10
+  }
+
+  // def checkValue(sample: Array[Int]): Boolean = {
+  //   true
+  // }
 }
 
