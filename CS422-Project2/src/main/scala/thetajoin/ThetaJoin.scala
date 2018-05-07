@@ -2,11 +2,11 @@ package thetajoin
 
 import org.apache.spark.rdd.RDD
 import org.slf4j.LoggerFactory
+import scala.collection.mutable.ListBuffer
 import scala.math.ceil
-import scala.util.Sorting.quickSort
 import scala.math.abs
 import scala.math.sqrt
-
+import scala.util.Sorting.quickSort
 
 class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends java.io.Serializable {
   val logger = LoggerFactory.getLogger("ThetaJoin")    
@@ -42,8 +42,8 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val rdd1Attribute = rdd1.map(row => row.getInt(index1))
     val rdd2Attribute = rdd2.map(row => row.getInt(index2))
 
-    val overallRowSize = rdd1Attribute.count()
-    val overalColumnSize = rdd2Attribute.count()
+    val overallRowSize = rdd1Attribute.count().toInt
+    val overalColumnSize = rdd2Attribute.count().toInt
     val factor = Math.sqrt(overallRowSize * overalColumnSize / reducers)
   
     val size1 = ceil(overallRowSize / factor).toInt
@@ -64,11 +64,11 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     quickSort(horizontalSamples)
     quickSort(verticalSamples)
 
-    val horizontalSamplesMod = 0 +: horizontalSamples :+ Int.MaxValue
-    val verticalSamplesMod = 0 +: verticalSamples :+ Int.MaxValue
-
     horizontalBoundaries = horizontalSamples.toList
     verticalBoundaries = verticalSamples.toList
+
+    val horizontalSamplesMod = 0 +: horizontalBoundaries :+ Int.MaxValue
+    val verticalSamplesMod = 0 +: verticalBoundaries :+ Int.MaxValue
 
     val horizontalBucket = (0 to horizontalBoundaries.size).toList.map( i =>
       rdd1Attribute.filter(row => 
@@ -98,23 +98,35 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     // done step 1
 
     // step 2
+    // implement histogram
+    val histogram = {
+      val mockHistogram = new ListBuffer[List[Int]]()
+      (horizontalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.foreach( x => {
+        (verticalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.filter(y => 
+          (x._1 >= verticalSamplesMod(y._2) && x._1 < verticalSamplesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalSamplesMod(x._2) < y._1) ).foreach(y =>
+            print(x._2 + "," + y._2 + " ")
+        )
+      println("")
+      })
+    }
+
     // have to find the best maxInput, bucketAssignment
     var maxInput = 100
 
-    val score = (maxInput to bucketsize by 100).toList.foreach(maxInputSize => {
-      val rowSize = factors(maxInputSize)
-      val columnSize = rowSize.map(size => maxInputSize / size)
-      println(rowSize)
-      println(columnSize)
-      rowSize.zip(columnSize).map( (i,j) => 
-        (0 until overallRowSize by i).foreach(x =>
-          (0 until overalColumnSize by j).foreach(y => 
-            // still don't know
-          )
-        )
-      )
-      0
-    })
+    // val score = (maxInput to bucketsize by 100).toList.foreach(maxInputSize => {
+    //   val rowSize = factors(maxInputSize)
+    //   val columnSize = rowSize.map(size => maxInputSize / size)
+    //   println(rowSize)
+    //   println(columnSize)
+    //   rowSize.zip(columnSize).map( (i,j) => 
+    //     (0 until overallRowSize by i).foreach(x =>
+    //       (0 until overalColumnSize by j).foreach(y => 
+    //         // still don't know
+    //       )
+    //     )
+    //   )
+    //   0
+    // })
 
     null
   }  
@@ -160,7 +172,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     min < 100
   }
 
-  def factors(num: Long) : List[Int] = {
+  def factors(num: Int) : List[Int] = {
     (1 to sqrt(num).toInt).toList.filter{ divisor =>
       num % divisor == 0
     }
