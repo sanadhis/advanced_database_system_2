@@ -136,23 +136,30 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     println("Total of matching 1st element " + histogram(0).sum)
     // histogram(0).zipWithIndex.iterator.filter(e => e._1 == 1).foreach(e => println(e._2 + " " + verticalBucket(0)(e._2)))
 
-    // have to find the best maxInput, bucketAssignment
-    var maxInput = 100
+    val score = {
+      val initialMaxInput = (0.01 * bucketsize).toInt
+      val incrementMaxInput = initialMaxInput
+      
+      (initialMaxInput to bucketsize by incrementMaxInput).foreach(maxInput => {
+        val rowSize = factors(maxInput)
+        val columnSize = rowSize.map(size => maxInput / size)
+        // println(rowSize)
+        // println(columnSize)
 
-    // val score = (maxInput to bucketsize by 100).toList.foreach(maxInputSize => {
-    //   val rowSize = factors(maxInputSize)
-    //   val columnSize = rowSize.map(size => maxInputSize / size)
-    //   println(rowSize)
-    //   println(columnSize)
-    //   // rowSize.zip(columnSize).map( (i,j) => 
-    //   //   (0 until overallRowSize by i).foreach(x =>
-    //   //     (0 until overalColumnSize by j).foreach(y => 
-    //   //       // still don't know
-    //   //     )
-    //   //   )
-    //   // )
-    //   0
-    // })
+        var prevScore = Double.MinValue
+        var currentScore = 0.toDouble
+        rowSize.zip(columnSize).iterator.takeWhile(_ => currentScore > prevScore || currentScore == 0).foreach( comb => {
+          val rows = comb._1
+          val columns = comb._2
+          prevScore = currentScore
+          currentScore = ((0 until rows).map(row => histogram(row).sum).sum).toDouble / (overalColumnSize / maxInput)
+          println("Score: " + currentScore + " for " + rows + " & " + columns + " of " + maxInput)
+        })
+
+      })
+
+    0
+    }
 
     null
   }  
