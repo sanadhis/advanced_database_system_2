@@ -77,7 +77,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     )
 
     val verticalBucket = (0 to verticalBoundaries.size).toList.map( i =>
-      rdd1Attribute.filter(row => 
+      rdd2Attribute.filter(row => 
         (row >= verticalSamplesMod(i)) && (row < verticalSamplesMod(i+1))
       ).collect().toList
     )
@@ -100,15 +100,41 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     // step 2
     // implement histogram
     val histogram = {
-      val mockHistogram = new ListBuffer[List[Int]]()
+      val mockHistogram = Array.fill(overallRowSize){Array.fill(overalColumnSize){0}}
+      var xThreshold = 0
+      var yThreshold = 0
+      
       (horizontalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.foreach( x => {
         (verticalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.filter(y => 
-          (x._1 >= verticalSamplesMod(y._2) && x._1 < verticalSamplesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalSamplesMod(x._2) < y._1) ).foreach(y =>
+          (x._1 >= verticalSamplesMod(y._2) && x._1 < verticalSamplesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalSamplesMod(x._2) < y._1) ).foreach(y => {
             print(x._2 + "," + y._2 + " ")
-        )
-      println("")
+
+            val hList = horizontalBucket(x._2)
+            val vList = verticalBucket(y._2)
+            
+            (0 until hList.size).foreach(i => {
+              (0 until vList.size).foreach(j => {
+                if(checkCondition(hList(i),vList(j),op)){
+                  mockHistogram(xThreshold + i)(yThreshold + j) = 1
+                }
+              })
+            })
+            
+            yThreshold += verticalCounts(y._2)
+          })
+      
+      println()
+      xThreshold += horizontalCounts(x._2)
+      yThreshold = 0        
+      
       })
+      mockHistogram
     }
+
+    val firstElement = horizontalBucket(0)(0)
+    println("1st element " + firstElement)
+    println("Total of matching 1st element " + histogram(0).sum)
+    // histogram(0).zipWithIndex.iterator.filter(e => e._1 == 1).foreach(e => println(e._2 + " " + verticalBucket(0)(e._2)))
 
     // have to find the best maxInput, bucketAssignment
     var maxInput = 100
@@ -118,13 +144,13 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     //   val columnSize = rowSize.map(size => maxInputSize / size)
     //   println(rowSize)
     //   println(columnSize)
-    //   rowSize.zip(columnSize).map( (i,j) => 
-    //     (0 until overallRowSize by i).foreach(x =>
-    //       (0 until overalColumnSize by j).foreach(y => 
-    //         // still don't know
-    //       )
-    //     )
-    //   )
+    //   // rowSize.zip(columnSize).map( (i,j) => 
+    //   //   (0 until overallRowSize by i).foreach(x =>
+    //   //     (0 until overalColumnSize by j).foreach(y => 
+    //   //       // still don't know
+    //   //     )
+    //   //   )
+    //   // )
     //   0
     // })
 
