@@ -139,59 +139,70 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val score = {
       var maxScore = Double.MinValue
       var bestRows = 0
+      var bestColumns = 0
+      var rowPointer = 0
 
       val maxInput = bucketsize
-      val rowSize = factors_naive(maxInput)
-      val columnSize = rowSize.map(size => maxInput / size)
-      // println(rowSize)
-      // println(columnSize)
+      val dimensions = factors_naive(maxInput).filter{input => input < maxInput}
+      println(dimensions)
 
       var prevScore = Double.MinValue
       var currentScore = 0.toDouble
-      rowSize.zip(columnSize).foreach( comb => {
-        val rows = comb._1
-        val columns = comb._2
-        val nBuckets = (overallRowSize / rows, overalColumnSize / columns)
 
+      // dimensions.map(rows => dimensions.map(columns => {
+      (1 to overallRowSize).foreach(rows => {
+        val columns = maxInput / rows
+
+        val nBuckets = (overallRowSize / rows, overalColumnSize / columns)
+        
         val score = {
 
           val candidateArea = (0 until nBuckets._2).toList.map( y => {
-            (0 until nBuckets._1).toList.map(x => {
+            // (0 until nBuckets._1).toList.map(x => {
               val indexColumns = y * columns
-              val indexRows = x * rows
+              // val indexRows = x * rows
 
-              val total = (indexRows until (indexRows + rows)).map(idx => {
-                histogram(idx).slice(indexColumns, indexColumns + columns).sum
+              val total = (rowPointer until rows).map(idx => {
+                histogram(idx).slice(indexColumns, min(indexColumns + columns, overalColumnSize)).sum
               }).sum
                 
               total
-            })
-          }).flatten
+            // })
+          })//.flatten
 
           val candidateAreaCount = candidateArea.count(sum => sum !=0 )
           val totalCandidateArea = candidateArea.sum.toDouble
-          println("candidate area count: " + candidateAreaCount + " candidate sum: " + totalCandidateArea)
+          // println("candidate area count: " + candidateAreaCount + " candidate sum: " + totalCandidateArea)
           
           if(candidateAreaCount == 0 ){
-            0
+            (0.0, 0)
           }
           else{
-            totalCandidateArea / candidateAreaCount
+            (totalCandidateArea / candidateAreaCount, candidateAreaCount)
           }
         }
 
         prevScore = currentScore
-        currentScore = score
+        currentScore = score._1
         if(currentScore >= maxScore){
           maxScore = currentScore
           bestRows = rows
+          bestColumns = columns
+          println("Score: " + currentScore + " for bucket size of(" + rows + "," + columns + ") with D:" + score._2 + " with maxInput=" + maxInput)
+        }
+        else{
+          println("Best score: " + maxScore + " for bucket size of(" + bestRows + "," + bestColumns + ") with D:" + score._2 + " with maxInput=" + maxInput)
+          rowPointer = rows
+          maxScore = Double.MinValue
         }
 
-        println("Score: " + currentScore + " for bucket size of(" + rows + "," + columns + ") with maxInput=" + maxInput)
-      })
+        // println("Score: " + currentScore + " for bucket size of(" + rows + "," + columns + ") with maxInput=" + maxInput)
+      })  
+
+      // }))
 
     println("***BEST***")
-    println("maxScore=" + maxScore + " , " + "size of(" + bestRows + "," + maxInput/bestRows + ") , maxInput=" + maxInput)
+    println("maxScore=" + maxScore + " , " + "size of(" + bestRows + "," + bestColumns + ") , maxInput=" + maxInput)
     
     (maxScore,bestRows)
     }
@@ -254,5 +265,13 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     }
   }
 
+  def min(val1: Int, val2: Int): Int = {
+    if (val1 <= val2) {
+      val1
+    }
+    else{
+      val2
+    }
+  }
 }
 
