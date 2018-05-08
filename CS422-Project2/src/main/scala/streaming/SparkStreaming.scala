@@ -34,6 +34,7 @@ import org.apache.hadoop.fs.Path;
 import java.io.BufferedWriter;
 import java.io.OutputStreamWriter;
 import java.net.URI;
+import scala.collection.mutable.ListBuffer
 
 class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
 
@@ -58,9 +59,6 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
   val sc = ssc.sparkContext
   sc.setLogLevel("ERROR")
 
-  var globalTopMap = Map[String, Int]()
-  val merge = (ip1: String, ip2: String) => ip1 + "," + ip2
-
   def consume() {
 
     // create a DStream that represents streaming data from a directory source.
@@ -70,6 +68,8 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
     val words = linesDStream.map(x => "(" + x.split("\t")(0) + "," + x.split("\t")(1) + ")")
 
     if (execType.contains("precise")) {
+      var globalTopMap = Map[String, Int]()
+
       val preciseMapperIP = words.map(ip => (ip,1))
       val preciseSumCountIP = preciseMapperIP.reduceByKey(_ + _)
 
@@ -92,25 +92,44 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
 
     } else if (execType.contains("approx")) {
       // for count-min sketch
-      val wCounters = args(4).toInt
-      val dRows = args(5).toInt
+      val wCounters = {
+        if (args.size == 6)
+          args(4).toInt
+        else
+          100
+      }
+
+      val dRows = {
+        if (args.size == 6)
+          args(5).toInt
+        else
+          10
+      }
 
       val countMinSketch = new CountMinSketch(wCounters, dRows)
       var globalTopCMS = new CountMinSketch(wCounters, dRows)
-      
+
+      var ipAddresses = List[String]()
+
       val approxMapperIP = words.map(ip => countMinSketch.map(ip))
       val approxSumCountIP = approxMapperIP.reduce(_ ++ _)
+
+      words.foreachRDD( rdd => {
+        if(rdd.count() != 0){
+          ipAddresses = rdd.collect().toList.distinct
+        }
+      })
 
       approxSumCountIP.foreachRDD( rdd => {
         if (rdd.count() != 0){
           val batchSeq = rdd.first()
-          val batchTopK = batchSeq.getIps.map( ip =>
+          val batchTopK = ipAddresses.map( ip =>
             (ip, batchSeq.estimate(ip))).toSeq.sortBy(_._2).reverse.slice(0,TOPK).map({
               case (ip, count) => (count, ip)
             })
 
           globalTopCMS ++= batchSeq
-          val globalTopK = globalTopCMS.getIps.map( ip =>
+          val globalTopK = ipAddresses.map( ip =>
             (ip, globalTopCMS.estimate(ip))).toSeq.sortBy(_._2).reverse.slice(0,TOPK).map({
               case (ip, count) => (count, ip)
             })

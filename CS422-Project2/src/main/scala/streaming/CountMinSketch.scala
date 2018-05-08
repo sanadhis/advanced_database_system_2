@@ -1,13 +1,12 @@
 package streaming;
 import scala.util.hashing.MurmurHash3
 
-class CountMinSketch(width: Int, rows: Int, arr: Array[Array[Int]], ipaddresses: Set[String]) extends Serializable {
+class CountMinSketch(width: Int, rows: Int, arr: Array[Array[Int]]) extends Serializable {
     val wCounters = width
     val dRows = rows
     val cmsArray = arr
-    val ips = ipaddresses
 
-    def this(width: Int, rows: Int) = this(width, rows, Array.ofDim[Int](rows, width), Set[String]())
+    def this(width: Int, rows: Int) = this(width, rows, Array.ofDim[Int](rows, width))
 
     def hash(ip: String, a: Int) : Int = {
         ( MurmurHash3.stringHash(ip, a) & Int.MaxValue) % wCounters
@@ -20,7 +19,7 @@ class CountMinSketch(width: Int, rows: Int, arr: Array[Array[Int]], ipaddresses:
     def map(ip: String) : CountMinSketch = {
         val zeros = zero()
         for { i <- 0 until dRows } zeros(i)(hash(ip,i)) = 1
-        new CountMinSketch(wCounters, dRows, zeros, Set[String](ip))
+        new CountMinSketch(wCounters, dRows, zeros)
     }
 
     def ++(that: CountMinSketch) = {
@@ -29,16 +28,12 @@ class CountMinSketch(width: Int, rows: Int, arr: Array[Array[Int]], ipaddresses:
                 this.cmsArray(i)(j) += that.cmsArray(i)(j)
             )
         )
-        new CountMinSketch(wCounters, dRows, this.cmsArray, this.ips ++ that.ips)
+        new CountMinSketch(wCounters, dRows, this.cmsArray)
     }
 
     def estimate(ip: String): Int = {
         val frequencies = getFrequencies(ip)
         frequencies.reduceLeft(_ min _)
-    }
-
-    def getIps(): List[String] = {
-        ips.toList
     }
 
     def getFrequencies(ip: String): List[Int] = {
