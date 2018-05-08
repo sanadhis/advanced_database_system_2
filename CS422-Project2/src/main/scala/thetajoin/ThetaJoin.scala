@@ -134,73 +134,69 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val firstElement = horizontalBucket(0)(0)
     println("1st element " + firstElement)
     println("Total of matching 1st element " + histogram(0).sum)
-    // histogram(0).zipWithIndex.iterator.filter(e => e._1 == 1).foreach(e => println(e._2 + " " + verticalBucket(0)(e._2)))
 
+    // find best assignment
     val score = {
-      // val initialMaxInput = (0.01 * bucketsize).toInt
-      // val incrementMaxInput = initialMaxInput
-      val maxInputSequence = factors_naive(bucketsize).filter{ maxInput => maxInput >= 10}
       var maxScore = Double.MinValue
       var bestRows = 0
-      var bestMaxInput = 0
 
-      (maxInputSequence).foreach(maxInput => {
-        val rowSize = factors_naive(maxInput)
-        val columnSize = rowSize.map(size => maxInput / size)
-        // println(rowSize)
-        // println(columnSize)
+      val maxInput = bucketsize
+      val rowSize = factors_naive(maxInput)
+      val columnSize = rowSize.map(size => maxInput / size)
+      // println(rowSize)
+      // println(columnSize)
 
-        var prevScore = Double.MinValue
-        var currentScore = 0.toDouble
-        rowSize.zip(columnSize).iterator.takeWhile(_ => currentScore >= prevScore || currentScore == 0).foreach( comb => {
-          val rows = comb._1
-          val columns = comb._2
-          
-          // val r = ((0 until rows).map(row => histogram(row).sum).sum).toDouble
-          val nBuckets = overalColumnSize / columns
+      var prevScore = Double.MinValue
+      var currentScore = 0.toDouble
+      rowSize.zip(columnSize).foreach( comb => {
+        val rows = comb._1
+        val columns = comb._2
+        val nBuckets = (overallRowSize / rows, overalColumnSize / columns)
 
-          val score = {
-            
-            val candidateArea = (0 until nBuckets).toList.map( bucket => {
-              val indexColumns = bucket * columns
+        val score = {
 
-              val total = (0 until rows ).map(idx => {
-                histogram(idx).slice(indexColumns, indexColumns+columns).sum
+          val candidateArea = (0 until nBuckets._2).toList.map( y => {
+            (0 until nBuckets._1).toList.map(x => {
+              val indexColumns = y * columns
+              val indexRows = x * rows
+
+              val total = (indexRows until (indexRows + rows)).map(idx => {
+                histogram(idx).slice(indexColumns, indexColumns + columns).sum
               }).sum
                 
               total
             })
+          }).flatten
 
-            val candidateAreaCount = candidateArea.count(sum => sum !=0 )
-            val totalCandidateArea = candidateArea.sum.toDouble
-            println("candidate area count: " + candidateAreaCount + " candidate sum: " + totalCandidateArea)
-            
-            if(candidateAreaCount == 0 ){
-              0
-            }
-            else{
-              totalCandidateArea / candidateAreaCount
-            }
+          val candidateAreaCount = candidateArea.count(sum => sum !=0 )
+          val totalCandidateArea = candidateArea.sum.toDouble
+          println("candidate area count: " + candidateAreaCount + " candidate sum: " + totalCandidateArea)
+          
+          if(candidateAreaCount == 0 ){
+            0
           }
-
-          prevScore = currentScore
-          currentScore = score
-          if(currentScore >= maxScore){
-            maxScore = currentScore
-            bestRows = rows
-            bestMaxInput = maxInput
+          else{
+            totalCandidateArea / candidateAreaCount
           }
-          // currentScore = ((0 until rows).map(row => histogram(row).sum).sum).toDouble / (overalColumnSize / maxInput)
+        }
 
-          println("Score: " + currentScore + " for bucket size of(" + rows + "," + columns + ") with maxInput=" + maxInput)
-        })
+        prevScore = currentScore
+        currentScore = score
+        if(currentScore >= maxScore){
+          maxScore = currentScore
+          bestRows = rows
+        }
 
+        println("Score: " + currentScore + " for bucket size of(" + rows + "," + columns + ") with maxInput=" + maxInput)
       })
 
     println("***BEST***")
-    println("maxScore=" + maxScore + " , " + "size of(" + bestRows + "," + bestMaxInput/bestRows + ") , maxInput=" + bestMaxInput)
-    0
+    println("maxScore=" + maxScore + " , " + "size of(" + bestRows + "," + maxInput/bestRows + ") , maxInput=" + maxInput)
+    
+    (maxScore,bestRows)
     }
+
+    // step 3, now assign value
 
     null
   }  
