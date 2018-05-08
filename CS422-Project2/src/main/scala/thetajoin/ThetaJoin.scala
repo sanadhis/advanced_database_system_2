@@ -137,27 +137,68 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     // histogram(0).zipWithIndex.iterator.filter(e => e._1 == 1).foreach(e => println(e._2 + " " + verticalBucket(0)(e._2)))
 
     val score = {
-      val initialMaxInput = (0.01 * bucketsize).toInt
-      val incrementMaxInput = initialMaxInput
-      
-      (initialMaxInput to bucketsize by incrementMaxInput).foreach(maxInput => {
-        val rowSize = factors(maxInput)
+      // val initialMaxInput = (0.01 * bucketsize).toInt
+      // val incrementMaxInput = initialMaxInput
+      val maxInputSequence = factors_naive(bucketsize).filter{ maxInput => maxInput >= 10}
+      var maxScore = Double.MinValue
+      var bestRows = 0
+      var bestMaxInput = 0
+
+      (maxInputSequence).foreach(maxInput => {
+        val rowSize = factors_naive(maxInput)
         val columnSize = rowSize.map(size => maxInput / size)
         // println(rowSize)
         // println(columnSize)
 
         var prevScore = Double.MinValue
         var currentScore = 0.toDouble
-        rowSize.zip(columnSize).iterator.takeWhile(_ => currentScore > prevScore || currentScore == 0).foreach( comb => {
+        rowSize.zip(columnSize).iterator.takeWhile(_ => currentScore >= prevScore || currentScore == 0).foreach( comb => {
           val rows = comb._1
           val columns = comb._2
+          
+          // val r = ((0 until rows).map(row => histogram(row).sum).sum).toDouble
+          val nBuckets = overalColumnSize / columns
+
+          val score = {
+            
+            val candidateArea = (0 until nBuckets).toList.map( bucket => {
+              val indexColumns = bucket * columns
+
+              val total = (0 until rows ).map(idx => {
+                histogram(idx).slice(indexColumns, indexColumns+columns).sum
+              }).sum
+                
+              total
+            })
+
+            val candidateAreaCount = candidateArea.count(sum => sum !=0 )
+            val totalCandidateArea = candidateArea.sum.toDouble
+            println("candidate area count: " + candidateAreaCount + " candidate sum: " + totalCandidateArea)
+            
+            if(candidateAreaCount == 0 ){
+              0
+            }
+            else{
+              totalCandidateArea / candidateAreaCount
+            }
+          }
+
           prevScore = currentScore
-          currentScore = ((0 until rows).map(row => histogram(row).sum).sum).toDouble / (overalColumnSize / maxInput)
-          println("Score: " + currentScore + " for " + rows + " & " + columns + " of " + maxInput)
+          currentScore = score
+          if(currentScore >= maxScore){
+            maxScore = currentScore
+            bestRows = rows
+            bestMaxInput = maxInput
+          }
+          // currentScore = ((0 until rows).map(row => histogram(row).sum).sum).toDouble / (overalColumnSize / maxInput)
+
+          println("Score: " + currentScore + " for bucket size of(" + rows + "," + columns + ") with maxInput=" + maxInput)
         })
 
       })
 
+    println("***BEST***")
+    println("maxScore=" + maxScore + " , " + "size of(" + bestRows + "," + bestMaxInput/bestRows + ") , maxInput=" + bestMaxInput)
     0
     }
 
@@ -211,5 +252,11 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     }
   }
   
+  def factors_naive(num: Int) : List[Int] = {
+    (1 to num).toList.filter{ divisor =>
+      num % divisor == 0
+    }
+  }
+
 }
 
