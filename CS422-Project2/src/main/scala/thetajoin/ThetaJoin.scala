@@ -139,18 +139,16 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val score = {
       var maxScore = Double.MinValue
       var bestRows = 0
+      var bestColumns = 0
 
       val maxInput = bucketsize
-      val rowSize = factors_naive(maxInput)
-      val columnSize = rowSize.map(size => maxInput / size)
-      // println(rowSize)
-      // println(columnSize)
+      val dimensions = factors_naive(maxInput).filter{input => input < maxInput}
+      println(dimensions)
 
       var prevScore = Double.MinValue
       var currentScore = 0.toDouble
-      rowSize.zip(columnSize).foreach( comb => {
-        val rows = comb._1
-        val columns = comb._2
+
+      dimensions.map(rows => dimensions.map(columns => {
         val nBuckets = (overallRowSize / rows, overalColumnSize / columns)
 
         val score = {
@@ -185,13 +183,14 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
         if(currentScore >= maxScore){
           maxScore = currentScore
           bestRows = rows
+          bestColumns = columns
         }
 
         println("Score: " + currentScore + " for bucket size of(" + rows + "," + columns + ") with maxInput=" + maxInput)
-      })
+      }))
 
     println("***BEST***")
-    println("maxScore=" + maxScore + " , " + "size of(" + bestRows + "," + maxInput/bestRows + ") , maxInput=" + maxInput)
+    println("maxScore=" + maxScore + " , " + "size of(" + bestRows + "," + bestColumns + ") , maxInput=" + maxInput)
     
     (maxScore,bestRows)
     }
