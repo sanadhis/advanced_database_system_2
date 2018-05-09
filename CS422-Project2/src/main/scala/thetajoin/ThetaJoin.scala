@@ -100,101 +100,85 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     // step 2
     // implement histogram
     val histogram = {
-      val mockHistogram = Array.fill(overallRowSize){Array.fill(overalColumnSize){0}}
-      var xThreshold = 0
-      var yThreshold = 0
-      
-      (horizontalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.foreach( x => {
-        (verticalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.filter(y => 
-          (x._1 >= verticalSamplesMod(y._2) && x._1 < verticalSamplesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalSamplesMod(x._2) < y._1) ).foreach(y => {
-            print(x._2 + "," + y._2 + " ")
 
-            val hList = horizontalBucket(x._2)
-            val vList = verticalBucket(y._2)
-            
-            (0 until hList.size).foreach(i => {
-              (0 until vList.size).foreach(j => {
-                if(checkCondition(hList(i),vList(j),op)){
-                  mockHistogram(xThreshold + i)(yThreshold + j) = 1
-                }
-              })
-            })
-            
-            yThreshold += verticalCounts(y._2)
-          })
-      
-      println()
-      xThreshold += horizontalCounts(x._2)
-      yThreshold = 0        
-      
+      val mockHistogram = Array.fill(horizontalCounts.size){Array.fill(verticalCounts.size){0}}
+    
+      (horizontalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.foreach( x => {
+        (verticalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.filter( y => 
+          (x._1 >= verticalSamplesMod(y._2) && x._1 < verticalSamplesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalSamplesMod(x._2) < y._1) ).foreach(y => {
+            // define bucket with considered area
+            mockHistogram(x._2)(y._2) = 1
+        })
       })
+      
       mockHistogram
     }
 
-    val firstElement = horizontalBucket(0)(0)
-    println("1st element " + firstElement)
-    println("Total of matching 1st element " + histogram(0).sum)
+    println()
+    histogram.foreach(row => println(row.mkString("_")))
+    println()
+
+    // val firstElement = horizontalBucket(0)(0)
+    // println("1st element " + firstElement)
+    // println("Total of matching 1st element " + histogram(0).sum)
 
     // find best assignment
     val score = {
-      var maxScore = Double.MinValue
-      var bestRows = 0
-      var bestColumns = 0
 
+      val maxScore = Double.MinValue
       val maxInput = bucketsize
-      val dimensions = factors_naive(maxInput).filter{input => input < maxInput}
-      println(dimensions)
 
-      var prevScore = Double.MinValue
-      var currentScore = 0.toDouble
+      val nRows = histogram.size
+      val nColumns = histogram(0).size
+      val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
 
-      dimensions.map(rows => dimensions.map(columns => {
-        val nBuckets = (overallRowSize / rows, overalColumnSize / columns)
+      // (1 to nRows).foreach(rowsThreshold => {
+        
+        var nBucket = 1
+        var reducerId = 1
+        var totalRows = 0
+        var totalColumn = 0
+        var lastColumnIndex = -1
 
-        val score = {
+        (0 until nRows).foreach(rows => {
 
-          val candidateArea = (0 until nBuckets._2).toList.map( y => {
-            (0 until nBuckets._1).toList.map(x => {
-              val indexColumns = y * columns
-              val indexRows = x * rows
+          val rowsCount = horizontalCounts(rows)
+          totalRows += rowsCount
 
-              val total = (indexRows until (indexRows + rows)).map(idx => {
-                histogram(idx).slice(indexColumns, indexColumns + columns).sum
-              }).sum
-                
-              total
-            })
-          }).flatten
+          (0 until nColumns).filter(columns => histogram(rows)(columns) == 1).foreach(columns => {
+              
+              val columnCount = verticalCounts(columns)
+              if(lastColumnIndex != columns){
+                totalColumn += columnCount
+              }
+              
+              if(totalRows + totalColumn >= maxInput){
+                println("cannot handle condition: " + totalRows + "," + totalColumn)
+                reducerId += 1
+                nBucket += 1
+                totalRows = rowsCount
+                totalColumn = columnCount
+              }
+              
+              println("can handle condition: " + totalRows + "," + totalColumn)
+              assignment(rows)(columns) = reducerId
 
-          val candidateAreaCount = candidateArea.count(sum => sum !=0 )
-          val totalCandidateArea = candidateArea.sum.toDouble
-          println("candidate area count: " + candidateAreaCount + " candidate sum: " + totalCandidateArea)
+              lastColumnIndex = columns
+          })
           
-          if(candidateAreaCount == 0 ){
-            0
-          }
-          else{
-            totalCandidateArea / candidateAreaCount
-          }
-        }
+        })
+        
+        val score = totalRows.toDouble / nBucket
+        println("Score: " + score  + " for " + " with nBucket=" + nBucket)
+        
+      // })
 
-        prevScore = currentScore
-        currentScore = score
-        if(currentScore >= maxScore){
-          maxScore = currentScore
-          bestRows = rows
-          bestColumns = columns
-        }
-
-        println("Score: " + currentScore + " for bucket size of(" + rows + "," + columns + ") with maxInput=" + maxInput)
-      }))
-
-    println("***BEST***")
-    println("maxScore=" + maxScore + " , " + "size of(" + bestRows + "," + bestColumns + ") , maxInput=" + maxInput)
-    
-    (maxScore,bestRows)
+    assignment
     }
 
+    println()    
+    score.foreach(row => println(row.mkString("_")))
+    println()    
     // step 3, now assign value
 
     null
