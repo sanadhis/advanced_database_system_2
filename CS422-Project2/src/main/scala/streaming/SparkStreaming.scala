@@ -86,7 +86,7 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
           })
           
           println("This batch: %s".format(batchTopK.mkString("[", ",", "]")))
-          println("Global batch: %s".format(globalTopK.mkString("[", ",", "]")))
+          println("Global: %s".format(globalTopK.mkString("[", ",", "]")))
         }
       })
 
@@ -109,33 +109,29 @@ class SparkStreaming(sparkConf: SparkConf, args: Array[String]) {
       val countMinSketch = new CountMinSketch(wCounters, dRows)
       var globalTopCMS = new CountMinSketch(wCounters, dRows)
 
-      var ipAddresses = List[String]()
+      // hard-coded for testing purpose as the requirement of the project
+      // note that the ip address should include bracket as well "()"
+      val ipAddresses = List[String]("(161.69.48.219,161.69.45.5)")
 
       val approxMapperIP = words.map(ip => countMinSketch.map(ip))
       val approxSumCountIP = approxMapperIP.reduce(_ ++ _)
 
-      words.foreachRDD( rdd => {
-        if(rdd.count() != 0){
-          ipAddresses = rdd.collect().toList.distinct
-        }
-      })
-
       approxSumCountIP.foreachRDD( rdd => {
         if (rdd.count() != 0){
           val batchSeq = rdd.first()
-          val batchTopK = ipAddresses.map( ip =>
-            (ip, batchSeq.estimate(ip))).toSeq.sortBy(_._2).reverse.slice(0,TOPK).map({
+          val batchFrequency = ipAddresses.map( ip =>
+            (ip, batchSeq.estimate(ip))).map({
               case (ip, count) => (count, ip)
             })
 
           globalTopCMS ++= batchSeq
-          val globalTopK = ipAddresses.map( ip =>
-            (ip, globalTopCMS.estimate(ip))).toSeq.sortBy(_._2).reverse.slice(0,TOPK).map({
+          val globalFrequency = ipAddresses.map( ip =>
+            (ip, globalTopCMS.estimate(ip))).map({
               case (ip, count) => (count, ip)
             })
 
-          println("[CMS] This batch: %s".format(batchTopK.mkString("[", ",", "]")))
-          println("[CMS] Global batch: %s".format(globalTopK.mkString("[", ",", "]")))
+          println("[CMS] This batch: %s".format(batchFrequency.mkString("[", ",", "]")))
+          println("[CMS] Global: %s".format(globalFrequency.mkString("[", ",", "]")))
         }
       })
     
