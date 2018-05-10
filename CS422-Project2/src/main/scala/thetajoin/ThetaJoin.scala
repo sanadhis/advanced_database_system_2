@@ -136,6 +136,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     // println("Total of matching 1st element " + histogram(0).sum)
 
     // find best assignment
+    var nBucket = 1
     val bestAssignment = {
 
       val maxScore = Double.MinValue
@@ -147,7 +148,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
 
       (1 to nRows).foreach(rowsThreshold => {
         
-        var nBucket = 1
+        nBucket = 1
         var reducerId = 1
         var totalRows = 0
         var totalColumn = 0
@@ -217,7 +218,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
 
     // step 4, partition value based on bucket assignment
     val rddAssignment = leftRDDAssignment.union(rightRDDAssignment)
-    val rddPartitioned = rddAssignment.partitionBy(new HashPartitioner(3))
+    val rddPartitioned = rddAssignment.partitionBy(new HashPartitioner(nBucket))
     
     // rddPartitioned.foreachPartition(partition => println("element in this partition: " + partition.length))
     
@@ -228,8 +229,6 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
         val left = list.filter(row => row._2._1 == "L").map(row => (row._1, row._2._2.getInt(index1))).iterator
         val right = list.filter(row => row._2._1 == "R").map(row => (row._1, row._2._2.getInt(index2))).iterator
         
-        // println(left.size)
-        // println(right.size)
         val joinResult = local_thetajoin(left, right, op)
         joinResult
       })
