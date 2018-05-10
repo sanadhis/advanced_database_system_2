@@ -108,6 +108,16 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
           (x._1 >= verticalSamplesMod(y._2) && x._1 < verticalSamplesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalSamplesMod(x._2) < y._1) ).foreach(y => {
             // define bucket with considered area
             mockHistogram(x._2)(y._2) = 1
+            if(op == "<" || op == "<="){
+              (y._2 until verticalCounts.size).foreach(yPos => {
+                mockHistogram(x._2)(yPos) = 1
+              })
+            }
+            else if(op == ">" || op == ">="){
+              (0 until y._2).foreach(yPos => {
+                mockHistogram(x._2)(yPos) = 1
+              })
+            }
         })
       })
       
@@ -132,15 +142,17 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       val nColumns = histogram(0).size
       val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
 
-      // (1 to nRows).foreach(rowsThreshold => {
+      (1 to nRows).foreach(rowsThreshold => {
         
         var nBucket = 1
         var reducerId = 1
         var totalRows = 0
         var totalColumn = 0
-        var lastColumnIndex = -1
+        var lastColumnIndex = Int.MinValue
 
-        (0 until nRows).foreach(rows => {
+        val totalCoverageArea = Array.fill(reducers){0}
+
+        (0 until rowsThreshold).foreach(rows => {
 
           val rowsCount = horizontalCounts(rows)
           totalRows += rowsCount
@@ -148,19 +160,20 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
           (0 until nColumns).filter(columns => histogram(rows)(columns) == 1).foreach(columns => {
               
               val columnCount = verticalCounts(columns)
-              if(lastColumnIndex != columns){
+              if(columns > lastColumnIndex){
                 totalColumn += columnCount
               }
               
               if(totalRows + totalColumn >= maxInput){
-                println("cannot handle condition: " + totalRows + "," + totalColumn)
+                // println("cannot handle condition: " + totalRows + "," + totalColumn)
                 reducerId += 1
                 nBucket += 1
                 totalRows = rowsCount
                 totalColumn = columnCount
               }
               
-              println("can handle condition: " + totalRows + "," + totalColumn)
+              totalCoverageArea(reducerId) = totalRows*totalColumn  
+              // println("can handle condition: " + totalRows + "," + totalColumn)
               assignment(rows)(columns) = reducerId
 
               lastColumnIndex = columns
@@ -168,10 +181,10 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
           
         })
         
-        val score = totalRows.toDouble / nBucket
-        println("Score: " + score  + " for " + " with nBucket=" + nBucket)
+        val score = totalCoverageArea.sum.toDouble / nBucket
+        println("Score: " + score  + " for rowsThres=" + rowsThreshold + " with nBucket=" + nBucket)
         
-      // })
+      })
 
     assignment
     }
