@@ -108,6 +108,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
           (x._1 >= verticalSamplesMod(y._2) && x._1 < verticalSamplesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalSamplesMod(x._2) < y._1) ).foreach(y => {
             // define bucket with considered area
             mockHistogram(x._2)(y._2) = 1
+
             if(op == "<" || op == "<="){
               (y._2 until verticalCounts.size).foreach(yPos => {
                 mockHistogram(x._2)(yPos) = 1
@@ -118,6 +119,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
                 mockHistogram(x._2)(yPos) = 1
               })
             }
+
         })
       })
       
@@ -133,7 +135,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     // println("Total of matching 1st element " + histogram(0).sum)
 
     // find best assignment
-    val score = {
+    val bestAssignment = {
 
       val maxScore = Double.MinValue
       val maxInput = bucketsize
@@ -190,9 +192,28 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     }
 
     println()    
-    score.foreach(row => println(row.mkString("_")))
-    println()    
+    bestAssignment.foreach(row => println(row.mkString("_")))
+    println()
+
     // step 3, now assign value
+    val leftAssignment = bestAssignment
+    val rightAssignment = bestAssignment.transpose
+
+    // left assignment
+    val leftRDDAssignment = rdd1.flatMap(row => {
+      val position = search(row.getInt(index1), horizontalSamplesMod)
+      leftAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerId, ("L", row) ) )
+    })
+
+    // right assignment
+    val rightRDDAssignment = rdd2.flatMap(row => {
+      val position = search(row.getInt(index2), verticalSamplesMod)
+      rightAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerId, ("R", row) ) )
+    })
+
+    // leftRDDAssignment.foreach(e => println(e))
+    // rightAssignment.foreach(e => println(e))
+
 
     null
   }  
@@ -250,5 +271,14 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     }
   }
 
+  def search(target: Int, l: List[Int]) = {
+    def recursion(low:Int, high:Int): Int = (low + high)/2 match {
+      case _ if high < low => (low + high)/2
+      case mid if l(mid) > target => recursion(low, mid - 1)      
+      case mid if l(mid) < target => recursion(mid + 1, high)
+      case mid => (low + high)/2
+    } 
+    recursion(0, l.size - 1)
+  }
 }
 
