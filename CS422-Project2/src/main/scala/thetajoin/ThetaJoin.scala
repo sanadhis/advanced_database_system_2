@@ -1,6 +1,7 @@
 package thetajoin
 
 import org.apache.spark.rdd.RDD
+import org.apache.spark.HashPartitioner
 import org.slf4j.LoggerFactory
 import scala.collection.mutable.ListBuffer
 import scala.math.ceil
@@ -214,8 +215,29 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     // leftRDDAssignment.foreach(e => println(e))
     // rightAssignment.foreach(e => println(e))
 
+    // step 4, partition value based on bucket assignment
+    val rddAssignment = leftRDDAssignment.union(rightRDDAssignment)
+    val rddPartitioned = rddAssignment.partitionBy(new HashPartitioner(3))
+    
+    // rddPartitioned.foreachPartition(partition => println("element in this partition: " + partition.length))
+    
+    // step 5, final join of local theta join in each partition
+    val result = {
+      rddPartitioned.mapPartitions(partitions => {
+        val list = partitions.toList
+        val left = list.filter(row => row._2._1 == "L").map(row => (row._1, row._2._2.getInt(index1))).iterator
+        val right = list.filter(row => row._2._1 == "R").map(row => (row._1, row._2._2.getInt(index2))).iterator
+        
+        // println(left.size)
+        // println(right.size)
+        val joinResult = local_thetajoin(left, right, op)
+        joinResult
+      })
+    }
 
-    null
+    // result.foreach(row => println("element in this row: " + row))
+
+    result
   }  
     
   /*
