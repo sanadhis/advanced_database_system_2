@@ -80,18 +80,18 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     horizontalBoundaries = horizontalSamples.toList
     verticalBoundaries = verticalSamples.toList
 
-    val horizontalSamplesMod = 0 +: horizontalBoundaries :+ Int.MaxValue
-    val verticalSamplesMod = 0 +: verticalBoundaries :+ Int.MaxValue
+    val horizontalBoundariesMod = 0 +: horizontalBoundaries :+ Int.MaxValue
+    val verticalBoundariesMod = 0 +: verticalBoundaries :+ Int.MaxValue
 
     val horizontalBucket = (0 to horizontalBoundaries.size).toList.map( i =>
       rdd1Attribute.filter(row => 
-        (row >= horizontalSamplesMod(i)) && (row < horizontalSamplesMod(i+1))
+        (row >= horizontalBoundariesMod(i)) && (row < horizontalBoundariesMod(i+1))
       ).collect().toList
     )
 
     val verticalBucket = (0 to verticalBoundaries.size).toList.map( i =>
       rdd2Attribute.filter(row => 
-        (row >= verticalSamplesMod(i)) && (row < verticalSamplesMod(i+1))
+        (row >= verticalBoundariesMod(i)) && (row < verticalBoundariesMod(i+1))
       ).collect().toList
     )
 
@@ -118,7 +118,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     
       (horizontalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.foreach( x => {
         (verticalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.filter( y => 
-          (x._1 >= verticalSamplesMod(y._2) && x._1 < verticalSamplesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalSamplesMod(x._2) < y._1) ).foreach(y => {
+          (x._1 >= verticalBoundariesMod(y._2) && x._1 < verticalBoundariesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalBoundariesMod(x._2) < y._1) ).foreach(y => {
             // define bucket with considered area
             mockHistogram(x._2)(y._2) = 1
 
@@ -153,52 +153,77 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       val nRows = histogram.size
       val nColumns = histogram(0).size
       val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
+      
+      nBucket = 1
+      var reducerId = 1
+      var totalRows = 0
+      var totalColumn = 0
+      var bucketLastColumn = Int.MinValue
+      var bucketFirstColumn = 0
 
-      (1 to nRows).foreach(rowsThreshold => {
-        
-        nBucket = 1
-        var reducerId = 1
-        var totalRows = 0
-        var totalColumn = 0
-        var lastColumnIndex = Int.MinValue
+      // val totalCoverageArea = Array.fill(reducers){0}
 
-        val totalCoverageArea = Array.fill(reducers){0}
+      (0 until nRows).foreach(rows => {
 
-        (0 until rowsThreshold).foreach(rows => {
+        val rowsCount = horizontalCounts(rows)
+        totalRows += rowsCount
 
-          val rowsCount = horizontalCounts(rows)
-          totalRows += rowsCount
+        (0 until nColumns).filter(columns => histogram(rows)(columns) == 1).foreach(columns => {
+            
+            val columnCount = verticalCounts(columns)
+            
+            if(columns > bucketLastColumn){
+              totalColumn += columnCount
+            }
+            else if (columns < bucketLastColumn){
+              reducerId += 1
+              nBucket += 1
+              bucketFirstColumn = columns
+              totalRows = rowsCount
+              totalColumn = columnCount
+            }
+            
+            if(totalRows + totalColumn >= maxInput){
+              // go down here (hell yeah)
+              (rows+1 until nRows).iterator.takeWhile(r => totalRows + (totalColumn-columnCount) + horizontalCounts(r) <= maxInput).foreach(r => {
+                totalRows += horizontalCounts(r)
 
-          (0 until nColumns).filter(columns => histogram(rows)(columns) == 1).foreach(columns => {
-              
-              val columnCount = verticalCounts(columns)
-              if(columns > lastColumnIndex){
-                totalColumn += columnCount
-              }
-              
-              if(totalRows + totalColumn >= maxInput){
-                // println("cannot handle condition: " + totalRows + "," + totalColumn)
-                reducerId += 1
-                nBucket += 1
-                totalRows = rowsCount
-                totalColumn = columnCount
-              }
-              
-              totalCoverageArea(reducerId) = totalRows*totalColumn  
-              // println("can handle condition: " + totalRows + "," + totalColumn)
-              assignment(rows)(columns) = reducerId
+                (0 until columns).filter(c => histogram(r)(c) == 1).foreach(c => {
+                  histogram(r)(c) = 0
+                  assignment(r)(c) = reducerId
+                })
 
-              lastColumnIndex = columns
+              })
+
+              reducerId += 1
+              nBucket += 1
+              bucketFirstColumn = columns
+              totalRows = rowsCount
+              totalColumn = columnCount
+            }
+            
+            // totalCoverageArea(reducerId) = totalRows*totalColumn  
+            assignment(rows)(columns) = reducerId
+            histogram(rows)(columns) = 0
+
+            bucketLastColumn = columns
+        })
+
+        (rows+1 until nRows).iterator.takeWhile(r => totalRows + (totalColumn) + horizontalCounts(r) <= maxInput).foreach(r => {
+          totalRows += horizontalCounts(r)
+
+          (bucketFirstColumn to bucketLastColumn).filter(c => histogram(r)(c) == 1).foreach(c => {
+            histogram(r)(c) = 0
+            assignment(r)(c) = reducerId
           })
-          
+
         })
         
-        val score = totalCoverageArea.sum.toDouble / nBucket
-        println("Score: " + score  + " for rowsThres=" + rowsThreshold + " with nBucket=" + nBucket)
-        
       })
-
-    assignment
+      
+      // val score = totalCoverageArea.sum.toDouble / nBucket
+        
+      assignment
     }
 
     println()    
@@ -211,25 +236,20 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
 
     // left assignment
     val leftRDDAssignment = rdd1.flatMap(row => {
-      val position = search(row.getInt(index1), horizontalSamplesMod)
+      val position = search(row.getInt(index1), horizontalBoundariesMod)
       leftAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerId, ("L", row) ) )
     })
 
     // right assignment
     val rightRDDAssignment = rdd2.flatMap(row => {
-      val position = search(row.getInt(index2), verticalSamplesMod)
+      val position = search(row.getInt(index2), verticalBoundariesMod)
       rightAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerId, ("R", row) ) )
     })
-
-    // leftRDDAssignment.foreach(e => println(e))
-    // rightAssignment.foreach(e => println(e))
 
     // step 4, partition value based on bucket assignment
     val rddAssignment = leftRDDAssignment.union(rightRDDAssignment)
     val rddPartitioned = rddAssignment.partitionBy(new HashPartitioner(nBucket))
-    
-    // rddPartitioned.foreachPartition(partition => println("element in this partition: " + partition.length))
-    
+        
     // step 5, final join of local theta join in each partition
     val result = {
       rddPartitioned.mapPartitions(partitions => {
@@ -241,8 +261,6 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
         joinResult
       })
     }
-
-    // result.foreach(row => println("element in this row: " + row))
 
     result
   }  
