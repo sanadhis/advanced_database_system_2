@@ -12,43 +12,71 @@ class ThetaJoinTest extends FlatSpec {
   val ctx = new SparkContext(sparkConf)
   val sqlContext = new org.apache.spark.sql.SQLContext(ctx)  
   
-  test
+  val reducers = 10
+  val maxInput = 1000 
   
-  def test() {
-    val reducers = 10
-    val maxInput = 1000 
+  val input1 = "src/test/resources/input1_1K.csv"
+  val input2 = "src/test/resources/input2_1K.csv"
     
-    val inputFile1="input1_1K.csv"
-    val inputFile2="input2_1K.csv"
+  val output = "output"
+  
+  val df1 = sqlContext.read
+    .format("com.databricks.spark.csv")
+    .option("header", "true")
+    .option("inferSchema", "true")
+    .option("delimiter", ",")
+    .load(input1)
+  
+  val df2 = sqlContext.read
+    .format("com.databricks.spark.csv")
+    .option("header", "true")
+    .option("inferSchema", "true")
+    .option("delimiter", ",")
+    .load(input2)
+  
+  val rdd1 = df1.rdd
+  val rdd2 = df2.rdd
     
-    val input1 = new File(getClass.getResource(inputFile1).getFile).getPath
-    val input2 = new File(getClass.getResource(inputFile2).getFile).getPath
-      
-    val output = "output"
+  val schema1 = df1.schema.toList.map(x => x.name)
+  val schema2 = df2.schema.toList.map(x => x.name)
     
-    val df1 = sqlContext.read
-      .format("com.databricks.spark.csv")
-      .option("header", "true")
-      .option("inferSchema", "true")
-      .option("delimiter", ",")
-      .load(input1)
+  val dataset1 = new Dataset(rdd1, schema1)
+  val dataset2 = new Dataset(rdd2, schema2)  
+
+  testEqual
+  testLowerThan
+  testGreaterThan
+  testNotEqual
+  
+  def testEqual() {
+    val t1 = System.nanoTime    
+    val tj = new ThetaJoin(dataset1.getRDD.count, dataset2.getRDD.count, reducers, maxInput)
+    val res = tj.theta_join(dataset1, dataset2, "num", "num", "=")           
     
-    val df2 = sqlContext.read
-      .format("com.databricks.spark.csv")
-      .option("header", "true")
-      .option("inferSchema", "true")
-      .option("delimiter", ",")
-      .load(input2)
+    val resultSize = res.count     
+    val t2 = System.nanoTime
     
-    val rdd1 = df1.rdd
-    val rdd2 = df2.rdd
-      
-    val schema1 = df1.schema.toList.map(x => x.name)
-    val schema2 = df2.schema.toList.map(x => x.name)
-      
-    val dataset1 = new Dataset(rdd1, schema1)
-    val dataset2 = new Dataset(rdd2, schema2)  
+    println((t2-t1)/(Math.pow(10,9)))
     
+    val index1 = schema1.indexOf("num")
+    val index2 = schema2.indexOf("num")          
+    
+    val cartRes = rdd1.cartesian(rdd2).flatMap(x => {
+      val v1 = x._1(index1).asInstanceOf[Int]
+      val v2 = x._2(index2).asInstanceOf[Int]
+      if(v1 == v2)
+        List((v1, v2))
+      else
+        List()
+    })
+    
+    val resultSizeCartesian = cartRes.count
+    println("My result: " + resultSize)                
+    println("Should be: " + resultSizeCartesian)
+    assert(resultSize == resultSizeCartesian)
+  } 
+
+  def testLowerThan() {
     val t1 = System.nanoTime    
     val tj = new ThetaJoin(dataset1.getRDD.count, dataset2.getRDD.count, reducers, maxInput)
     val res = tj.theta_join(dataset1, dataset2, "num", "num", "<")           
@@ -70,8 +98,65 @@ class ThetaJoinTest extends FlatSpec {
         List()
     })
     
-    val resultSizeCartesian = cartRes.count                    
-        
-    assert(resultSize === resultSizeCartesian)
-  }    
+    val resultSizeCartesian = cartRes.count
+    println("My result: " + resultSize)                
+    println("Should be: " + resultSizeCartesian)
+    assert(resultSize == resultSizeCartesian)
+  }   
+
+  def testGreaterThan() {
+    val t1 = System.nanoTime    
+    val tj = new ThetaJoin(dataset1.getRDD.count, dataset2.getRDD.count, reducers, maxInput)
+    val res = tj.theta_join(dataset1, dataset2, "num", "num", ">")           
+    
+    val resultSize = res.count     
+    val t2 = System.nanoTime
+    
+    println((t2-t1)/(Math.pow(10,9)))
+    
+    val index1 = schema1.indexOf("num")
+    val index2 = schema2.indexOf("num")          
+    
+    val cartRes = rdd1.cartesian(rdd2).flatMap(x => {
+      val v1 = x._1(index1).asInstanceOf[Int]
+      val v2 = x._2(index2).asInstanceOf[Int]
+      if(v1 > v2)
+        List((v1, v2))
+      else
+        List()
+    })
+    
+    val resultSizeCartesian = cartRes.count
+    println("My result: " + resultSize)                
+    println("Should be: " + resultSizeCartesian)
+    assert(resultSize == resultSizeCartesian)
+  }
+
+  def testNotEqual() {
+    val t1 = System.nanoTime    
+    val tj = new ThetaJoin(dataset1.getRDD.count, dataset2.getRDD.count, reducers, maxInput)
+    val res = tj.theta_join(dataset1, dataset2, "num", "num", "!=")           
+    
+    val resultSize = res.count     
+    val t2 = System.nanoTime
+    
+    println((t2-t1)/(Math.pow(10,9)))
+    
+    val index1 = schema1.indexOf("num")
+    val index2 = schema2.indexOf("num")          
+    
+    val cartRes = rdd1.cartesian(rdd2).flatMap(x => {
+      val v1 = x._1(index1).asInstanceOf[Int]
+      val v2 = x._2(index2).asInstanceOf[Int]
+      if(v1 != v2)
+        List((v1, v2))
+      else
+        List()
+    })
+    
+    val resultSizeCartesian = cartRes.count
+    println("My result: " + resultSize)                
+    println("Should be: " + resultSizeCartesian)
+    assert(resultSize == resultSizeCartesian)
+  }       
 }
