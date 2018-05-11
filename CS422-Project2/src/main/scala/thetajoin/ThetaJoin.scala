@@ -184,7 +184,6 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
             val columnCount = verticalCounts(columns)
             
             if(bucketLastRow == nRows - 1){
-              println(reducerId)
               reducerId += 1
               nBucket += 1
               bucketFirstColumn = columns
