@@ -47,20 +47,32 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val overalColumnSize = rdd2Attribute.count().toInt
     val factor = Math.sqrt(overallRowSize * overalColumnSize / reducers)
   
-    val size1 = ceil(overallRowSize / factor).toInt
-    val size2 = ceil(overalColumnSize / factor).toInt
+    val size1 = ceil(overallRowSize / factor).toInt * 10
+    val size2 = ceil(overalColumnSize / factor).toInt * 10
 
     // step 1: sampling
-    var horizontalSamples = rdd1Attribute.takeSample(false, size1)
-    var verticalSamples = rdd2Attribute.takeSample(false, size2)    
+    var horizontalSamples = Array.fill(size1){0}
+    var verticalSamples = Array.fill(size2){0}
 
-    while(
-      generalCheck(horizontalSamples) || checkValue(horizontalSamples)
-    ) { horizontalSamples = rdd1Attribute.takeSample(false, size1) }
+    for { i <- 0 until horizontalSamples.size } {
+      var sampleValue = rdd1Attribute.takeSample(false, 1)(0)
+      
+      while (horizontalSamples.contains(sampleValue)) {
+        sampleValue = rdd1Attribute.takeSample(false, 1)(0)
+      }
 
-    while(
-      generalCheck(verticalSamples) || checkValue(verticalSamples)
-    ) { verticalSamples = rdd2Attribute.takeSample(false, size2) }
+      horizontalSamples(i) = sampleValue
+    }
+
+    for { i <- 0 until verticalSamples.size } {
+      var sampleValue = rdd2Attribute.takeSample(false, 1)(0)
+        
+      while (verticalSamples.contains(sampleValue)) {
+        sampleValue = rdd2Attribute.takeSample(false, 1)(0)
+      }
+      
+      verticalSamples(i) = sampleValue
+    }
 
     quickSort(horizontalSamples)
     quickSort(verticalSamples)
@@ -130,10 +142,6 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     println()
     histogram.foreach(row => println(row.mkString("_")))
     println()
-
-    // val firstElement = horizontalBucket(0)(0)
-    // println("1st element " + firstElement)
-    // println("Total of matching 1st element " + histogram(0).sum)
 
     // find best assignment
     var nBucket = 1
@@ -270,27 +278,6 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       case ">=" => value1 >= value2
     }
   }    
-
-  def generalCheck(sample: Array[Int]): Boolean = {
-    sample.contains(0) || (sample.size > sample.toSet.size) || sample.min < 10
-  }
-
-  def checkValue(sample: Array[Int]): Boolean = {
-    val min = sample.combinations(2).map(arr => math.abs(arr(0) - arr(1)) ).toArray.min
-    min < 100
-  }
-
-  def factors(num: Int) : List[Int] = {
-    (1 to sqrt(num).toInt).toList.filter{ divisor =>
-      num % divisor == 0
-    }
-  }
-  
-  def factors_naive(num: Int) : List[Int] = {
-    (1 to num).toList.filter{ divisor =>
-      num % divisor == 0
-    }
-  }
 
   def search(target: Int, l: List[Int]) = {
     def recursion(low:Int, high:Int): Int = (low + high)/2 match {
