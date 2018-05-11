@@ -32,13 +32,13 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
    * */  
   def theta_join(dataset1: Dataset, dataset2: Dataset, attr1:String, attr2:String, op:String): RDD[(Int, Int)] = {
     val schema1 = dataset1.getSchema
-    val schema2 = dataset2.getSchema        
+    val schema2 = dataset2.getSchema
     
     val rdd1 = dataset1.getRDD
     val rdd2 = dataset2.getRDD
     
     val index1 = schema1.indexOf(attr1)
-    val index2 = schema2.indexOf(attr2)        
+    val index2 = schema2.indexOf(attr2)
     
     val rdd1Attribute = rdd1.map(row => row.getInt(index1))
     val rdd2Attribute = rdd2.map(row => row.getInt(index2))
@@ -115,26 +115,36 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val histogram = {
 
       val mockHistogram = Array.fill(horizontalCounts.size){Array.fill(verticalCounts.size){0}}
-    
-      (horizontalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.foreach( x => {
-        (verticalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.filter( y => 
-          (x._1 >= verticalBoundariesMod(y._2) && x._1 < verticalBoundariesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalBoundariesMod(x._2) < y._1) ).foreach(y => {
-            // define bucket with considered area
-            mockHistogram(x._2)(y._2) = 1
 
-            if(op == "<" || op == "<="){
-              (y._2 until verticalCounts.size).foreach(yPos => {
-                mockHistogram(x._2)(yPos) = 1
-              })
-            }
-            else if(op == ">" || op == ">="){
-              (0 until y._2).foreach(yPos => {
-                mockHistogram(x._2)(yPos) = 1
-              })
-            }
-
+      if (op == "!="){
+        (0 until mockHistogram.size).foreach(x => {
+          (0 until mockHistogram(x).size).foreach(y => {
+            mockHistogram(x)(y) = 1
+          })
         })
-      })
+      }
+
+      else{
+        (horizontalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.foreach( x => {
+          (verticalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.filter( y => 
+            (x._1 >= verticalBoundariesMod(y._2) && x._1 < verticalBoundariesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalBoundariesMod(x._2) < y._1) ).foreach(y => {
+              // define bucket with considered area
+              mockHistogram(x._2)(y._2) = 1
+
+              if(op == "<" || op == "<="){
+                (y._2 until verticalCounts.size).foreach(yPos => {
+                  mockHistogram(x._2)(yPos) = 1
+                })
+              }
+              else if(op == ">" || op == ">="){
+                (0 until y._2).foreach(yPos => {
+                  mockHistogram(x._2)(yPos) = 1
+                })
+              }
+
+          })
+        })
+      }
       
       mockHistogram
     }
@@ -160,6 +170,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       var totalColumn = 0
       var bucketLastColumn = Int.MinValue
       var bucketFirstColumn = 0
+      var bucketLastRow = 0
 
       // val totalCoverageArea = Array.fill(reducers){0}
 
@@ -172,7 +183,16 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
             
             val columnCount = verticalCounts(columns)
             
-            if(columns > bucketLastColumn){
+            if(bucketLastRow == nRows - 1){
+              println(reducerId)
+              reducerId += 1
+              nBucket += 1
+              bucketFirstColumn = columns
+              bucketLastRow = 0
+              totalRows = rowsCount
+              totalColumn = columnCount
+            }
+            else if(columns > bucketLastColumn){
               totalColumn += columnCount
             }
             else if (columns < bucketLastColumn){
@@ -187,6 +207,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
               // go down here (hell yeah)
               (rows+1 until nRows).iterator.takeWhile(r => totalRows + (totalColumn-columnCount) + horizontalCounts(r) <= maxInput).foreach(r => {
                 totalRows += horizontalCounts(r)
+                bucketLastRow = r
 
                 (0 until columns).filter(c => histogram(r)(c) == 1).foreach(c => {
                   histogram(r)(c) = 0
@@ -215,6 +236,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
           (bucketFirstColumn to bucketLastColumn).filter(c => histogram(r)(c) == 1).foreach(c => {
             histogram(r)(c) = 0
             assignment(r)(c) = reducerId
+            bucketLastRow = r
           })
 
         })
@@ -226,7 +248,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       assignment
     }
 
-    println()    
+    println()
     bestAssignment.foreach(row => println(row.mkString("_")))
     println()
 
@@ -277,13 +299,13 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     var dat2List = dat2.toList
         
     while(dat1.hasNext) {
-      val row1 = dat1.next()      
+      val row1 = dat1.next()
       for(row2 <- dat2List) {
         if(checkCondition(row1._2, row2._2, op)) {
           res = res :+ (row1._2, row2._2)
-        }        
-      }      
-    }    
+        }
+      }
+    }
     res.iterator
   }  
   
@@ -294,17 +316,17 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       case "<=" => value1 <= value2
       case ">" => value1 > value2
       case ">=" => value1 >= value2
+      case "!=" => value1 != value2
     }
-  }    
+  }
 
   def search(target: Int, l: List[Int]) = {
     def recursion(low:Int, high:Int): Int = (low + high)/2 match {
       case _ if high < low => (low + high)/2
-      case mid if l(mid) > target => recursion(low, mid - 1)      
+      case mid if l(mid) > target => recursion(low, mid - 1)
       case mid if l(mid) < target => recursion(mid + 1, high)
       case mid => (low + high)/2
-    } 
+    }
     recursion(0, l.size - 1)
   }
 }
-
