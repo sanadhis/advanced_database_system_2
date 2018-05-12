@@ -50,8 +50,8 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val cRow = ceil(overallRowSize / factor).toInt
     val cColumn = ceil(overalColumnSize / factor).toInt
 
-    val size1 = cRow * 2 - 1 
-    val size2 = cColumn * 2 - 1
+    val size1 = cRow * 10 - 1 
+    val size2 = cColumn * 10 - 1
 
     // step 1: sampling
     var horizontalSamples = Array.fill(size1){0}
@@ -189,15 +189,9 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       assignment
     }
 
-    val distinctValue = bestAssignment.flatMap(row => row).distinct.sorted.filter(id => id!=0 )
+    val distinctValue = bestAssignment.flatMap(row => row).distinct.sorted.filter(id => id != 0 )
     val nBucket = distinctValue.size
-    val reducerIds = distinctValue.zipWithIndex.map(id => id._1 -> (id._2+1) ).toMap
-
-    (0 until nRows).foreach(row => {
-      (0 until nColumns).filter(column => histogram(row)(column) == 1).foreach(column => {
-        bestAssignment(row)(column) = reducerIds(bestAssignment(row)(column))
-      })
-    })
+    val reducerIdsLookup = distinctValue.zipWithIndex.map(id => id._1 -> (id._2+1) ).toMap
 
     println()
     bestAssignment.foreach(row => println(row.mkString("_")))
@@ -210,13 +204,13 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     // left assignment
     val leftRDDAssignment = rdd1.flatMap(row => {
       val position = search(row.getInt(index1), horizontalBoundariesMod)
-      leftAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerId, ("L", row) ) )
+      leftAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerIdsLookup(reducerId), ("L", row) ) )
     })
 
     // right assignment
     val rightRDDAssignment = rdd2.flatMap(row => {
       val position = search(row.getInt(index2), verticalBoundariesMod)
-      rightAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerId, ("R", row) ) )
+      rightAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerIdsLookup(reducerId), ("R", row) ) )
     })
 
     // step 4, partition value based on bucket assignment
