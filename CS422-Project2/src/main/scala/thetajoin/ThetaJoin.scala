@@ -47,8 +47,11 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val overalColumnSize = rdd2Attribute.count().toInt
     val factor = Math.sqrt(overallRowSize * overalColumnSize / reducers)
   
-    val size1 = ceil(overallRowSize / factor).toInt * 10
-    val size2 = ceil(overalColumnSize / factor).toInt * 10
+    val cRow = ceil(overallRowSize / factor).toInt
+    val cColumn = ceil(overalColumnSize / factor).toInt
+
+    val size1 = cRow * 2 - 1 
+    val size2 = cColumn * 2 - 1
 
     // step 1: sampling
     var horizontalSamples = Array.fill(size1){0}
@@ -153,99 +156,129 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     histogram.foreach(row => println(row.mkString("_")))
     println()
 
-    // find best assignment
-    var nBucket = 1
-    val bestAssignment = {
+    val nRows = histogram.size
+    val nColumns = histogram(0).size
 
-      val maxScore = Double.MinValue
-      val maxInput = bucketsize
-
-      val nRows = histogram.size
-      val nColumns = histogram(0).size
+    val defaultAssignment = {
+      var reducerId = 0
       val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
-      
-      nBucket = 1
-      var reducerId = 1
-      var totalRows = 0
-      var totalColumn = 0
-      var bucketLastColumn = Int.MinValue
-      var bucketFirstColumn = 0
-      var bucketLastRow = 0
 
-      // val totalCoverageArea = Array.fill(reducers){0}
-
-      (0 until nRows).foreach(rows => {
-
-        val rowsCount = horizontalCounts(rows)
-        totalRows += rowsCount
-
-        (0 until nColumns).filter(columns => histogram(rows)(columns) == 1).foreach(columns => {
-            
-            val columnCount = verticalCounts(columns)
-            
-            if(bucketLastRow == nRows - 1){
-              reducerId += 1
-              nBucket += 1
-              bucketFirstColumn = columns
-              bucketLastRow = 0
-              totalRows = rowsCount
-              totalColumn = columnCount
-            }
-            else if(columns > bucketLastColumn){
-              totalColumn += columnCount
-            }
-            else if (columns < bucketLastColumn){
-              reducerId += 1
-              nBucket += 1
-              bucketFirstColumn = columns
-              totalRows = rowsCount
-              totalColumn = columnCount
-            }
-            
-            if(totalRows + totalColumn >= maxInput){
-              // go down here (hell yeah)
-              (rows+1 until nRows).iterator.takeWhile(r => totalRows + (totalColumn-columnCount) + horizontalCounts(r) <= maxInput).foreach(r => {
-                totalRows += horizontalCounts(r)
-                bucketLastRow = r
-
-                (0 until columns).filter(c => histogram(r)(c) == 1).foreach(c => {
-                  histogram(r)(c) = 0
-                  assignment(r)(c) = reducerId
-                })
-
-              })
-
-              reducerId += 1
-              nBucket += 1
-              bucketFirstColumn = columns
-              totalRows = rowsCount
-              totalColumn = columnCount
-            }
-            
-            // totalCoverageArea(reducerId) = totalRows*totalColumn  
-            assignment(rows)(columns) = reducerId
-            histogram(rows)(columns) = 0
-
-            bucketLastColumn = columns
-        })
-
-        (rows+1 until nRows).iterator.takeWhile(r => totalRows + (totalColumn) + horizontalCounts(r) <= maxInput).foreach(r => {
-          totalRows += horizontalCounts(r)
-
-          (bucketFirstColumn to bucketLastColumn).filter(c => histogram(r)(c) == 1).foreach(c => {
-            histogram(r)(c) = 0
-            assignment(r)(c) = reducerId
-            bucketLastRow = r
+      (0 until cRow).foreach(rowGroup => {
+        (0 until cColumn).foreach(columnGroup => {
+          reducerId += 1
+          val rowRange = (rowGroup * nRows/cRow until rowGroup * nRows/cRow + nRows/cRow)
+          rowRange.foreach(row => {
+            val columnRange = (columnGroup * nColumns/cColumn until columnGroup * nColumns/cColumn + nColumns/cColumn)
+            columnRange.foreach(column => {
+              assignment(row)(column) = reducerId
+            })
           })
-
         })
-        
       })
+      assignment
+    }
+
+    // find best assignment
+    val bestAssignment = {
+      val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
+      (0 until nRows).foreach(row => {
+        (0 until nColumns).filter(column => histogram(row)(column) == 1).foreach(column => {
+          assignment(row)(column) = defaultAssignment(row)(column) & Int.MaxValue
+        })
+      })
+      assignment
+    }
+
+    val nBucket = bestAssignment.flatMap(row => row).distinct.filter(e => e!=0).size
+    // val bestAssignment = {
+
+    //   val maxScore = Double.MinValue
+    //   val maxInput = bucketsize
+
+    //   val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
+      
+    //   nBucket = 1
+    //   var reducerId = 1
+    //   var totalRows = 0
+    //   var totalColumn = 0
+    //   var bucketLastColumn = Int.MinValue
+    //   var bucketFirstColumn = 0
+    //   var bucketLastRow = 0
+
+    //   // val totalCoverageArea = Array.fill(reducers){0}
+
+    //   (0 until nRows).foreach(rows => {
+
+    //     val rowsCount = horizontalCounts(rows)
+    //     totalRows += rowsCount
+
+    //     (0 until nColumns).filter(columns => histogram(rows)(columns) == 1).foreach(columns => {
+            
+    //         val columnCount = verticalCounts(columns)
+            
+    //         if(bucketLastRow == nRows - 1){
+    //           reducerId += 1
+    //           nBucket += 1
+    //           bucketFirstColumn = columns
+    //           bucketLastRow = 0
+    //           totalRows = rowsCount
+    //           totalColumn = columnCount
+    //         }
+    //         else if(columns > bucketLastColumn){
+    //           totalColumn += columnCount
+    //         }
+    //         else if (columns < bucketLastColumn){
+    //           reducerId += 1
+    //           nBucket += 1
+    //           bucketFirstColumn = columns
+    //           totalRows = rowsCount
+    //           totalColumn = columnCount
+    //         }
+            
+    //         if(totalRows + totalColumn >= maxInput){
+    //           // go down here (hell yeah)
+    //           (rows+1 until nRows).iterator.takeWhile(r => totalRows + (totalColumn-columnCount) + horizontalCounts(r) <= maxInput).foreach(r => {
+    //             totalRows += horizontalCounts(r)
+    //             bucketLastRow = r
+
+    //             (0 until columns).filter(c => histogram(r)(c) == 1).foreach(c => {
+    //               histogram(r)(c) = 0
+    //               assignment(r)(c) = reducerId
+    //             })
+
+    //           })
+
+    //           reducerId += 1
+    //           nBucket += 1
+    //           bucketFirstColumn = columns
+    //           totalRows = rowsCount
+    //           totalColumn = columnCount
+    //         }
+            
+    //         // totalCoverageArea(reducerId) = totalRows*totalColumn  
+    //         assignment(rows)(columns) = reducerId
+    //         histogram(rows)(columns) = 0
+
+    //         bucketLastColumn = columns
+    //     })
+
+    //     (rows+1 until nRows).iterator.takeWhile(r => totalRows + (totalColumn) + horizontalCounts(r) <= maxInput).foreach(r => {
+    //       totalRows += horizontalCounts(r)
+
+    //       (bucketFirstColumn to bucketLastColumn).filter(c => histogram(r)(c) == 1).foreach(c => {
+    //         histogram(r)(c) = 0
+    //         assignment(r)(c) = reducerId
+    //         bucketLastRow = r
+    //       })
+
+    //     })
+        
+    //   })
       
       // val score = totalCoverageArea.sum.toDouble / nBucket
         
-      assignment
-    }
+    //   assignment
+    // }
 
     println()
     bestAssignment.foreach(row => println(row.mkString("_")))
