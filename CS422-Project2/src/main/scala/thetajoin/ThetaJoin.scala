@@ -189,96 +189,15 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       assignment
     }
 
-    val nBucket = bestAssignment.flatMap(row => row).distinct.filter(e => e!=0).size
-    // val bestAssignment = {
+    val distinctValue = bestAssignment.flatMap(row => row).distinct.sorted.filter(id => id!=0 )
+    val nBucket = distinctValue.size
+    val reducerIds = distinctValue.zipWithIndex.map(id => id._1 -> (id._2+1) ).toMap
 
-    //   val maxScore = Double.MinValue
-    //   val maxInput = bucketsize
-
-    //   val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
-      
-    //   nBucket = 1
-    //   var reducerId = 1
-    //   var totalRows = 0
-    //   var totalColumn = 0
-    //   var bucketLastColumn = Int.MinValue
-    //   var bucketFirstColumn = 0
-    //   var bucketLastRow = 0
-
-    //   // val totalCoverageArea = Array.fill(reducers){0}
-
-    //   (0 until nRows).foreach(rows => {
-
-    //     val rowsCount = horizontalCounts(rows)
-    //     totalRows += rowsCount
-
-    //     (0 until nColumns).filter(columns => histogram(rows)(columns) == 1).foreach(columns => {
-            
-    //         val columnCount = verticalCounts(columns)
-            
-    //         if(bucketLastRow == nRows - 1){
-    //           reducerId += 1
-    //           nBucket += 1
-    //           bucketFirstColumn = columns
-    //           bucketLastRow = 0
-    //           totalRows = rowsCount
-    //           totalColumn = columnCount
-    //         }
-    //         else if(columns > bucketLastColumn){
-    //           totalColumn += columnCount
-    //         }
-    //         else if (columns < bucketLastColumn){
-    //           reducerId += 1
-    //           nBucket += 1
-    //           bucketFirstColumn = columns
-    //           totalRows = rowsCount
-    //           totalColumn = columnCount
-    //         }
-            
-    //         if(totalRows + totalColumn >= maxInput){
-    //           // go down here (hell yeah)
-    //           (rows+1 until nRows).iterator.takeWhile(r => totalRows + (totalColumn-columnCount) + horizontalCounts(r) <= maxInput).foreach(r => {
-    //             totalRows += horizontalCounts(r)
-    //             bucketLastRow = r
-
-    //             (0 until columns).filter(c => histogram(r)(c) == 1).foreach(c => {
-    //               histogram(r)(c) = 0
-    //               assignment(r)(c) = reducerId
-    //             })
-
-    //           })
-
-    //           reducerId += 1
-    //           nBucket += 1
-    //           bucketFirstColumn = columns
-    //           totalRows = rowsCount
-    //           totalColumn = columnCount
-    //         }
-            
-    //         // totalCoverageArea(reducerId) = totalRows*totalColumn  
-    //         assignment(rows)(columns) = reducerId
-    //         histogram(rows)(columns) = 0
-
-    //         bucketLastColumn = columns
-    //     })
-
-    //     (rows+1 until nRows).iterator.takeWhile(r => totalRows + (totalColumn) + horizontalCounts(r) <= maxInput).foreach(r => {
-    //       totalRows += horizontalCounts(r)
-
-    //       (bucketFirstColumn to bucketLastColumn).filter(c => histogram(r)(c) == 1).foreach(c => {
-    //         histogram(r)(c) = 0
-    //         assignment(r)(c) = reducerId
-    //         bucketLastRow = r
-    //       })
-
-    //     })
-        
-    //   })
-      
-      // val score = totalCoverageArea.sum.toDouble / nBucket
-        
-    //   assignment
-    // }
+    (0 until nRows).foreach(row => {
+      (0 until nColumns).filter(column => histogram(row)(column) == 1).foreach(column => {
+        bestAssignment(row)(column) = reducerIds(bestAssignment(row)(column))
+      })
+    })
 
     println()
     bestAssignment.foreach(row => println(row.mkString("_")))
@@ -306,7 +225,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
         
     // step 5, final join of local theta join in each partition
     val result = {
-      rddPartitioned.mapPartitions(partitions => {
+      rddPartitioned.mapPartitionsWithIndex( (index, partitions) => {
         val list = partitions.toList
         val left = list.filter(row => row._2._1 == "L").map(row => (row._1, row._2._2.getInt(index1))).iterator
         val right = list.filter(row => row._2._1 == "R").map(row => (row._1, row._2._2.getInt(index2))).iterator
