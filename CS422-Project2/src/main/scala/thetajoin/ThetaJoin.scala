@@ -106,7 +106,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       bucket.size
     )
 
-    println("Horizontal boundaries: " + horizontalBoundaries)
+    println("\nHorizontal boundaries: " + horizontalBoundaries)
     println("Vertical boundaries: " + verticalBoundaries)
     println("Horizontal count: " + horizontalCounts)
     println("Vertical count: " + verticalCounts)
@@ -152,50 +152,118 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       mockHistogram
     }
 
-    println()
+    println("\nHistogram:")
     histogram.foreach(row => println(row.mkString("_")))
     println()
 
     val nRows = histogram.size
     val nColumns = histogram(0).size
 
-    val defaultAssignment = {
-      var reducerId = 0
-      val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
-
-      (0 until cRow).foreach(rowGroup => {
-        (0 until cColumn).foreach(columnGroup => {
-          reducerId += 1
-          val rowRange = (rowGroup * nRows/cRow until rowGroup * nRows/cRow + nRows/cRow)
-          rowRange.foreach(row => {
-            val columnRange = (columnGroup * nColumns/cColumn until columnGroup * nColumns/cColumn + nColumns/cColumn)
-            columnRange.foreach(column => {
-              assignment(row)(column) = reducerId
-            })
-          })
-        })
-      })
-      assignment
-    }
-
     // find best assignment
     val bestAssignment = {
-      val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
+      val maxInput = bucketsize
+
+      var lastReducerId = 1
+      var lastRow = 0
+      var lastColumn = 0
+      var lastBestScore = Int.MinValue
+      var totalRowCount = 0
+      var totalColumnCount = 0
+      
+      val cumulatedAssignment = Array.fill(nRows){Array.fill(nColumns){0}}
+
       (0 until nRows).foreach(row => {
-        (0 until nColumns).filter(column => histogram(row)(column) == 1).foreach(column => {
-          assignment(row)(column) = defaultAssignment(row)(column) & Int.MaxValue
+        val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
+
+        var totalAreaCount = List[Int]()
+        var reducerId = lastReducerId
+
+        totalRowCount += horizontalCounts(row)
+        lastColumn = 0
+        totalColumnCount = 0
+
+        (0 until nColumns).foreach(column => {
+                    
+          totalColumnCount += verticalCounts(column)
+          
+          if(totalRowCount + totalColumnCount > maxInput){
+            //marking
+            (lastRow to row).foreach(r => {
+              (lastColumn until column).foreach(c => {
+                if(histogram(r)(c) == 1){
+                  assignment(r)(c) = reducerId
+                }
+              })
+            })
+
+            totalAreaCount :+= totalRowCount * totalColumnCount
+            totalColumnCount = verticalCounts(column)
+            lastColumn = column
+            reducerId += 1
+          }
+        
         })
+
+        if(lastColumn < nColumns){
+          (lastRow to row).foreach(r => {
+            (lastColumn until nColumns).foreach(c => {
+              if(histogram(r)(c) == 1){
+                assignment(r)(c) = reducerId
+              }
+            })
+          })
+          totalAreaCount :+= totalRowCount * totalColumnCount
+        }
+
+        val score = totalAreaCount.sum / totalAreaCount.size
+        println("score=" + score + " for row=" + (row+1).toString + " with area=" + totalAreaCount.size)
+        if(score >= lastBestScore){
+          lastBestScore = score
+          (lastRow to row).foreach(r => {
+            (0 until nColumns).foreach(c => {
+              cumulatedAssignment(r)(c) = assignment(r)(c)
+            })
+          })
+        }
+        else{
+          println("current score is lower! Selecting last best score of: best score=" + lastBestScore)
+          lastReducerId = reducerId + 1
+          lastRow = row
+          totalRowCount = row
+          lastBestScore = Int.MinValue
+        }
       })
-      assignment
+
+      if(lastBestScore == Int.MinValue){
+        totalRowCount = 0
+        totalColumnCount = 0
+        (lastRow until nRows).foreach(r => {
+          totalRowCount = horizontalCounts(r)
+          (0 until nColumns).foreach(c => {
+            totalColumnCount += verticalCounts(c)
+
+            if(totalRowCount + totalColumnCount > maxInput){
+              lastReducerId += 1
+              totalColumnCount = verticalCounts(c)
+            }
+
+            if (histogram(r)(c) == 1){
+              cumulatedAssignment(r)(c) = lastReducerId
+            }
+          })
+        })
+      }
+
+      cumulatedAssignment
     }
+
+    println("\nBest Assignment: ")
+    bestAssignment.foreach(row => println(row.mkString("_")))
+    println()
 
     val distinctValue = bestAssignment.flatMap(row => row).distinct.sorted.filter(id => id != 0 )
     val nBucket = distinctValue.size
     val reducerIdsLookup = distinctValue.zipWithIndex.map(id => id._1 -> (id._2+1) ).toMap
-
-    println()
-    bestAssignment.foreach(row => println(row.mkString("_")))
-    println()
 
     // step 3, now assign value
     val leftAssignment = bestAssignment
