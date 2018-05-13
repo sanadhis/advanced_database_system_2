@@ -79,6 +79,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
 
       val mockHistogram = Array.fill(horizontalCounts.size){Array.fill(verticalCounts.size){0}}
 
+      // mark all if it is a not equal operation
       if (op == "!="){
         (0 until mockHistogram.size).foreach(x => {
           (0 until mockHistogram(x).size).foreach(y => {
@@ -94,11 +95,13 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
               // mark this area to be considered for join operation
               mockHistogram(x._2)(y._2) = 1
 
+              // mark upper right triangle of the histogram for "<" and "<=" operators
               if(op == "<" || op == "<="){
                 (y._2 until verticalCounts.size).foreach(yPos => {
                   mockHistogram(x._2)(yPos) = 1
                 })
               }
+              // mark lower left triangle of the histogram for ">" and ">=" operators              
               else if(op == ">" || op == ">="){
                 (0 until y._2).foreach(yPos => {
                   mockHistogram(x._2)(yPos) = 1
@@ -117,129 +120,149 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     println()
 
     // step 2: bucket assignment
-    // iteratively try to find best bucket assignment
+    // iteratively try to find best buckets assignment
     val nRows = histogram.size
     val nColumns = histogram(0).size
 
     val bestAssignment = {
+      // final assignment based on scoring calculation of the M-Bucket-I Algorithm
+      val finalAssignment = Array.fill(nRows){Array.fill(nColumns){0}}
       val maxInput = bucketsize
 
-      var lastReducerId = 1
+      // control variable to bucket assignment
+      var lastBucketId = 1
       var lastRow = 0
-      var lastColumn = 0
       var lastBestScore = Int.MinValue
       var totalRowCount = 0
       var totalColumnCount = 0
       
-      val cumulatedAssignment = Array.fill(nRows){Array.fill(nColumns){0}}
-
       (0 until nRows).foreach(row => {
+        // temporary assignment, the elements will be changed every row iteration
         val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
 
+        // total area covered by all n bucket in this row iteration
         var totalAreaCount = List[Int]()
-        var reducerId = lastReducerId
 
+        // ensure every row iteration start with different bucket id 
+        // (avoid continuing bucket id of previous row's last bucket)
+        var bucketId = lastBucketId
+
+        // keep track of total number of row in every row iteration and reset total number of column
         totalRowCount += horizontalCounts(row)
-        lastColumn = 0
         totalColumnCount = 0
 
         (0 until nColumns).foreach(column => {
                     
+          // keep track of total number of column in every column iteration
           totalColumnCount += verticalCounts(column)
           
+          // if exceed maxInput, add bucket (increase bucket id), 
+          // store totalAreaCount of this bucket, and reset totalColumnCount
           if(totalRowCount + totalColumnCount > maxInput){
-            //marking
-            (lastRow to row).foreach(r => {
-              (lastColumn until column).foreach(c => {
-                if(histogram(r)(c) == 1){
-                  assignment(r)(c) = reducerId
-                }
-              })
-            })
-
             totalAreaCount :+= totalRowCount * totalColumnCount
             totalColumnCount = verticalCounts(column)
-            lastColumn = column
-            reducerId += 1
+            bucketId += 1
           }
-        
+
+          // mark the temporary assignment
+          (lastRow to row).foreach(r => {
+            if(histogram(r)(column) == 1){
+              assignment(r)(column) = bucketId
+            }
+          })
+
         })
 
-        if(lastColumn < nColumns){
-          (lastRow to row).foreach(r => {
-            (lastColumn until nColumns).foreach(c => {
-              if(histogram(r)(c) == 1){
-                assignment(r)(c) = reducerId
-              }
-            })
-          })
-          totalAreaCount :+= totalRowCount * totalColumnCount
-        }
+        // add the last bucket's area count (relative to this row iteration)
+        totalAreaCount :+= totalRowCount * totalColumnCount
 
+        // calculate and print score
         val score = totalAreaCount.sum / totalAreaCount.size
         println("score=" + score + " for row=" + (row+1).toString + " with area=" + totalAreaCount.size)
+
+        // update the final assignment if score is increasing
         if(score >= lastBestScore){
           lastBestScore = score
           (lastRow to row).foreach(r => {
             (0 until nColumns).foreach(c => {
-              cumulatedAssignment(r)(c) = assignment(r)(c)
+              finalAssignment(r)(c) = assignment(r)(c)
             })
           })
         }
+        // else, reset the checkpoint (relative lastRow, etc) and increase last bucket id
         else{
           println("current score is lower! Selecting last best score of: best score=" + lastBestScore)
-          lastReducerId = reducerId + 1
+          lastBucketId = bucketId + 1
           lastRow = row
           totalRowCount = row
           lastBestScore = Int.MinValue
         }
+
       })
 
+      // if the reset (lower score) happens in the last row, iterate through the last row
+      // to assign the area in this row into bucket(s)
       if(lastBestScore == Int.MinValue){
         totalRowCount = 0
         totalColumnCount = 0
+
         (lastRow until nRows).foreach(r => {
+
           totalRowCount = horizontalCounts(r)
+
           (0 until nColumns).foreach(c => {
             totalColumnCount += verticalCounts(c)
 
+            // increase bucket id if total input (row + column) exceed maxInput
             if(totalRowCount + totalColumnCount > maxInput){
-              lastReducerId += 1
+              lastBucketId += 1
               totalColumnCount = verticalCounts(c)
             }
 
+            // mark and assign area into bucket
             if (histogram(r)(c) == 1){
-              cumulatedAssignment(r)(c) = lastReducerId
+              finalAssignment(r)(c) = lastBucketId
             }
+
           })
+
         })
+        
       }
 
-      cumulatedAssignment
+      finalAssignment
     }
 
     println("\nBest Assignment: ")
     bestAssignment.foreach(row => println(row.mkString("_")))
     println()
 
+    // build a lookup map to resolve bucket id assigment into actual reducer id assignment
+    // e.g. bucket id: 1,3,5,8 -> reducer id: 1,2,3,4
     val distinctValue = bestAssignment.flatMap(row => row).distinct.sorted.filter(id => id != 0 )
-    val nBucket = distinctValue.size
     val reducerIdsLookup = distinctValue.zipWithIndex.map(id => id._1 -> (id._2+1) ).toMap
+
+    // the number of bucket is equal to the number of reducer needed for the algorithm
+    val nBucket = distinctValue.size
 
     // step 3, now assign value
     val leftAssignment = bestAssignment
     val rightAssignment = bestAssignment.transpose
 
-    // left assignment
+    // left "L" assignment
     val leftRDDAssignment = rdd1.flatMap(row => {
       val position = search(row.getInt(index1), horizontalBoundariesMod)
-      leftAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerIdsLookup(reducerId), ("L", row) ) )
+      leftAssignment(position).distinct.filter(assignment => assignment != 0).map( bucketId => 
+        (reducerIdsLookup(bucketId), ("L", row) ) 
+      )
     })
 
-    // right assignment
+    // right "R" assignment
     val rightRDDAssignment = rdd2.flatMap(row => {
       val position = search(row.getInt(index2), verticalBoundariesMod)
-      rightAssignment(position).distinct.filter(assignment => assignment != 0).map( reducerId => (reducerIdsLookup(reducerId), ("R", row) ) )
+      rightAssignment(position).distinct.filter(assignment => assignment != 0).map( bucketId => 
+        (reducerIdsLookup(bucketId), ("R", row) ) 
+      )
     })
 
     // step 4, partition value based on bucket assignment
