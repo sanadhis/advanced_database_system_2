@@ -19,7 +19,7 @@ make test
 make package
 ```
 
-# Copying the jar into docker dir
+## Copying the jar into docker dir
 ```bash
 make copy
 ```
