@@ -5,7 +5,6 @@ import org.apache.spark.HashPartitioner
 import org.slf4j.LoggerFactory
 import scala.collection.mutable.ListBuffer
 import scala.math.ceil
-import scala.math.abs
 import scala.math.sqrt
 import scala.util.Sorting.quickSort
 
@@ -40,70 +39,34 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val index1 = schema1.indexOf(attr1)
     val index2 = schema2.indexOf(attr2)
     
-    val rdd1Attribute = rdd1.map(row => row.getInt(index1))
-    val rdd2Attribute = rdd2.map(row => row.getInt(index2))
-
-    val overallRowSize = rdd1Attribute.count().toInt
-    val overalColumnSize = rdd2Attribute.count().toInt
-    val factor = Math.sqrt(overallRowSize * overalColumnSize / reducers)
-  
-    val cRow = ceil(overallRowSize / factor).toInt
-    val cColumn = ceil(overalColumnSize / factor).toInt
-
-    val size1 = cRow * 10 - 1 
-    val size2 = cColumn * 10 - 1
+    val rdd1JoinAttribute = rdd1.map(tuple => tuple.getInt(index1))
+    val rdd2JoinAttribute = rdd2.map(tuple => tuple.getInt(index2))
 
     // step 1: sampling
-    var horizontalSamples = Array.fill(size1){0}
-    var verticalSamples = Array.fill(size2){0}
+    // row refer to rdd1, column refer to rdd2
+    val overallRowSize = rdd1JoinAttribute.count().toInt
+    val overalColumnSize = rdd2JoinAttribute.count().toInt
+    val factor = sqrt(overallRowSize * overalColumnSize / reducers)
 
-    for { i <- 0 until horizontalSamples.size } {
-      var sampleValue = rdd1Attribute.takeSample(false, 1)(0)
-      
-      while (horizontalSamples.contains(sampleValue)) {
-        sampleValue = rdd1Attribute.takeSample(false, 1)(0)
-      }
+    val sizeOfRowSamples = ( ceil(overallRowSize / factor).toInt ) * 10 - 1 
+    val sizeOfColumnSamples = ( ceil(overalColumnSize / factor).toInt ) * 10 - 1
 
-      horizontalSamples(i) = sampleValue
-    }
-
-    for { i <- 0 until verticalSamples.size } {
-      var sampleValue = rdd2Attribute.takeSample(false, 1)(0)
-        
-      while (verticalSamples.contains(sampleValue)) {
-        sampleValue = rdd2Attribute.takeSample(false, 1)(0)
-      }
-      
-      verticalSamples(i) = sampleValue
-    }
-
-    quickSort(horizontalSamples)
-    quickSort(verticalSamples)
-
-    horizontalBoundaries = horizontalSamples.toList
-    verticalBoundaries = verticalSamples.toList
+    horizontalBoundaries = sampleData(sizeOfRowSamples, rdd1JoinAttribute)
+    verticalBoundaries = sampleData(sizeOfColumnSamples, rdd2JoinAttribute)
 
     val horizontalBoundariesMod = 0 +: horizontalBoundaries :+ Int.MaxValue
     val verticalBoundariesMod = 0 +: verticalBoundaries :+ Int.MaxValue
 
-    val horizontalBucket = (0 to horizontalBoundaries.size).toList.map( i =>
-      rdd1Attribute.filter(row => 
-        (row >= horizontalBoundariesMod(i)) && (row < horizontalBoundariesMod(i+1))
-      ).collect().toList
+    val horizontalCounts = (0 to horizontalBoundaries.size).toList.map( i =>
+      rdd1JoinAttribute.filter(value => 
+        (value >= horizontalBoundariesMod(i)) && (value < horizontalBoundariesMod(i+1))
+      ).count().toInt
     )
 
-    val verticalBucket = (0 to verticalBoundaries.size).toList.map( i =>
-      rdd2Attribute.filter(row => 
-        (row >= verticalBoundariesMod(i)) && (row < verticalBoundariesMod(i+1))
-      ).collect().toList
-    )
-
-    horizontalCounts = horizontalBucket.map( bucket =>
-      bucket.size
-    )
-
-    verticalCounts = verticalBucket.map( bucket =>
-      bucket.size
+    val verticalCounts = (0 to verticalBoundaries.size).toList.map( i =>
+      rdd2JoinAttribute.filter(value => 
+        (value >= verticalBoundariesMod(i)) && (value < verticalBoundariesMod(i+1))
+      ).count().toInt
     )
 
     println("\nHorizontal boundaries: " + horizontalBoundaries)
@@ -111,9 +74,6 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     println("Horizontal count: " + horizontalCounts)
     println("Vertical count: " + verticalCounts)
 
-    // done step 1
-
-    // step 2
     // implement histogram
     val histogram = {
 
@@ -131,7 +91,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
         (horizontalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.foreach( x => {
           (verticalBoundaries :+ Int.MaxValue).zipWithIndex.iterator.filter( y => 
             (x._1 >= verticalBoundariesMod(y._2) && x._1 < verticalBoundariesMod(y._2 + 1)) || (x._1 >= y._1 && horizontalBoundariesMod(x._2) < y._1) ).foreach(y => {
-              // define bucket with considered area
+              // mark this area to be considered for join operation
               mockHistogram(x._2)(y._2) = 1
 
               if(op == "<" || op == "<="){
@@ -156,10 +116,11 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     histogram.foreach(row => println(row.mkString("_")))
     println()
 
+    // step 2: bucket assignment
+    // iteratively try to find best bucket assignment
     val nRows = histogram.size
     val nColumns = histogram(0).size
 
-    // find best assignment
     val bestAssignment = {
       val maxInput = bucketsize
 
@@ -331,6 +292,23 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       case ">=" => value1 >= value2
       case "!=" => value1 != value2
     }
+  }
+
+  def sampleData(sampleSize: Int, joinAttribute: RDD[Int]): List[Int] = {
+    var samples = Array.fill(sampleSize){0}
+
+    for { i <- 0 until sampleSize } {
+      var sampleValue = joinAttribute.takeSample(false, 1)(0)
+      
+      while (samples.contains(sampleValue)) {
+        sampleValue = joinAttribute.takeSample(false, 1)(0)
+      }
+
+      samples(i) = sampleValue
+    }
+
+    quickSort(samples)
+    samples.toList
   }
 
   def search(target: Int, l: List[Int]) = {
