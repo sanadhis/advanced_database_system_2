@@ -11,18 +11,6 @@ import scala.util.Sorting.quickSort
 class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends java.io.Serializable {
   val logger = LoggerFactory.getLogger("ThetaJoin")    
   
-  // random samples for each relation
-  // helper structures, you are allowed
-  // not to use them
-  var horizontalBoundaries = List[Int]()
-  var verticalBoundaries = List[Int]()
-  
-  // number of values that fall in each partition
-  // helper structures, you are allowed
-  // not to use them
-  var horizontalCounts = List[Int]()
-  var verticalCounts = List[Int]()      
-  
   /*
    * this method gets as input two datasets and the condition
    * and returns an RDD with the result by projecting only 
@@ -51,18 +39,21 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val sizeOfRowSamples = ( ceil(overallRowSize / factor).toInt ) * 10 - 1 
     val sizeOfColumnSamples = ( ceil(overalColumnSize / factor).toInt ) * 10 - 1
 
-    horizontalBoundaries = sampleData(sizeOfRowSamples, rdd1JoinAttribute)
-    verticalBoundaries = sampleData(sizeOfColumnSamples, rdd2JoinAttribute)
+    // random samples for each relation
+    val horizontalBoundaries = sampleData(sizeOfRowSamples, rdd1JoinAttribute)
+    val verticalBoundaries = sampleData(sizeOfColumnSamples, rdd2JoinAttribute)
 
     val horizontalBoundariesMod = 0 +: horizontalBoundaries :+ Int.MaxValue
     val verticalBoundariesMod = 0 +: verticalBoundaries :+ Int.MaxValue
 
+    // number of values that fall in each partition of rdd1
     val horizontalCounts = (0 to horizontalBoundaries.size).toList.map( i =>
       rdd1JoinAttribute.filter(value => 
         (value >= horizontalBoundariesMod(i)) && (value < horizontalBoundariesMod(i+1))
       ).count().toInt
     )
 
+    // number of values that fall in each partition of rdd2
     val verticalCounts = (0 to verticalBoundaries.size).toList.map( i =>
       rdd2JoinAttribute.filter(value => 
         (value >= verticalBoundariesMod(i)) && (value < verticalBoundariesMod(i+1))
@@ -293,7 +284,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
    * */  
   def local_thetajoin(dat1:Iterator[(Int, Int)], dat2:Iterator[(Int, Int)], op:String) : Iterator[(Int, Int)] = {
     var res = List[(Int, Int)]()
-    var dat2List = dat2.toList
+    val dat2List = dat2.toList
         
     while(dat1.hasNext) {
       val row1 = dat1.next()
@@ -322,7 +313,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
    * return the sorted data as a list
    * */
   def sampleData(sampleSize: Int, joinAttribute: RDD[Int]): List[Int] = {
-    var samples = Array.fill(sampleSize){0}
+    val samples = Array.fill(sampleSize){0}
 
     for { i <- 0 until sampleSize } {
       var sampleValue = joinAttribute.takeSample(false, 1)(0)
