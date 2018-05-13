@@ -104,3 +104,18 @@ For example, for one extra slave you should add an extra line with "cs422pr2\_sl
 ```
 docker-compose -f cs422-pr2/docker-compose.yml up --scale slave=2
 ```
+
+# Stream generator;
+Get a terminal within a running container (as explained in step 1.5).
+Then execute the following:
+```bash
+java -jar ./jars/streamgenerator.jar hdfs://master:9000 /samples/stream.tsv /stream_input <number of rows per bacth> <interval between batch in seconds>
+```
+or directly edit and execute `/root/scripts/gen_stream`
+
+# Running specific class implementation on the Spark
+Again, get a terminal within a running container (as explained in step 1.5).
+Then execute as follow:
+```bash
+./spark-2.2.1-bin-hadoop2.7/bin/spark-submit --class <package name>.Main ./jars/cs422-project2_2.11-0.1.0.jar
+```
