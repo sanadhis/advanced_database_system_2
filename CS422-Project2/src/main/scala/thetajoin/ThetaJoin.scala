@@ -317,6 +317,10 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     }
   }
 
+  /*
+   * sample data from a RDD, ensure there is no duplication in the samples
+   * return the sorted data as a list
+   * */
   def sampleData(sampleSize: Int, joinAttribute: RDD[Int]): List[Int] = {
     var samples = Array.fill(sampleSize){0}
 
@@ -334,6 +338,9 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     samples.toList
   }
 
+  /*
+   * binary search
+   * */    
   def search(target: Int, l: List[Int]) = {
     def recursion(low:Int, high:Int): Int = (low + high)/2 match {
       case _ if high < low => (low + high)/2
