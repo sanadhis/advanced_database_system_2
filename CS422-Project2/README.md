@@ -1,16 +1,26 @@
-CS422 - Project 2
-====================
+# How to use
 
-Import the project in Eclipse using the following command
-> sbt eclipse
+## Compile and run the main class of a certain implementation:
+```bash
+make compile class=<implementation package name>
+```
+Example:
+```bash
+make compile class=streaming
+```
 
-Build from command line
-> sbt package
+## Running test (for theta join implementation only):
+```bash
+make test
+```
 
-In order to execute your program in eclipse make the following change in Main.scala:23:
+## Build java jar package:
+```bash
+make package
+```
 
-val sparkConf = new SparkConf().setAppName("CS422-Project2").setMaster("local[16]")
-
-Otherwise take the jar file that is created after running `sbt package`.
-The jar is located under target/scala-2.11/
-
+# Copying the jar into docker dir
+```bash
+make copy
+```
+Then proceed into `docker` dir.
