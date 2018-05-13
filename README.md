@@ -11,7 +11,8 @@ Project II of [Advanced Database System (CS-422)](http://isa.epfl.ch/imoniteur_I
 ### Prerequisites
 1. Install [scala](https://www.scala-lang.org/).
 2. Install scala build tool, [sbt](https://www.scala-sbt.org/).
-3. Ensure your environment has recognized scala and sbt:
+3. Ensure you have [GNU make](https://www.gnu.org/software/make/manual/make.html).
+4. Ensure your environment has recognized scala and sbt:
 ```bash
 # Example
 which scala
@@ -19,8 +20,8 @@ $ /usr/local/bin/scala
 which sbt
 /usr/local/bin/sbt
 ```
-4. Read about [apache spark](https://spark.apache.org/) and [hadoop](http://hadoop.apache.org/), *the latter may not really be necessary to read*. 
-5. Clone this repository.
+5. Read about [apache spark](https://spark.apache.org/) and [hadoop](http://hadoop.apache.org/), *the latter may not really be necessary to read*. 
+6. Clone this repository.
 
 ### Building the java jar package
 Go to `CS422-Project2` dir and follow the README there:
