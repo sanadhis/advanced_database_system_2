@@ -36,9 +36,9 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val overalColumnSize = rdd2JoinAttribute.count().toInt
     val factor = sqrt(overallRowSize * overalColumnSize / reducers)
 
-    val sizeOfRowSamples = ( ceil(overallRowSize / factor).toInt ) * 10 - 1 
-    val sizeOfColumnSamples = ( ceil(overalColumnSize / factor).toInt ) * 10 - 1
-
+    val sizeOfRowSamples = ( ceil(overallRowSize / factor).toInt )
+    val sizeOfColumnSamples = ( ceil(overalColumnSize / factor).toInt )
+    
     // random samples for each relation
     val horizontalBoundaries = sampleData(sizeOfRowSamples, rdd1JoinAttribute)
     val verticalBoundaries = sampleData(sizeOfColumnSamples, rdd2JoinAttribute)
@@ -116,20 +116,39 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val nColumns = histogram(0).size
 
     val bestAssignment = {
-      // final assignment based on scoring calculation of the M-Bucket-I Algorithm
-      val finalAssignment = Array.fill(nRows){Array.fill(nColumns){0}}
-      val maxInput = bucketsize
+
+      // map the actual row and column position into histogram position based on horizontal/vertical counts
+      // this is useful in order to find which row/colum interval is marked as "interesting" area
+      def findPosition(index: Int, counts: List[Int]): Int = {
+
+        var total = 0     // total counts so far
+        var position = 0  // position relative to histogram
+        
+        // loop while index offset still greater than total counts
+        counts.iterator.takeWhile(count => total + count <= index ).zipWithIndex.foreach(count => {
+          total += count._1
+          position = count._2 + 1
+        })
+
+        position
+      }
+
+      // final assignment for each row and column table based on scoring calculation of the M-Bucket-I Algorithm
+      val finalAssignment = Array.fill(overallRowSize){Array.fill(overalColumnSize){0}}
+      val maxInput = bucketsize     // to limit input of each bucket
+      val maxOutput = bucketsize    // to limit output of each bucket
 
       // control variable to bucket assignment
       var lastBucketId = 1
-      var lastRow = 0
-      var lastBestScore = Int.MinValue
-      var totalRowCount = 0
-      var totalColumnCount = 0
+      var lastRow = 0                   // starting row index of a bucket
+      var lastColumn = 0                // starting column index of a bucket
+      var totalRowCount = 0             // total row size of a bucket
+      var totalColumnCount = 0          // total column size of a bucket
+      var lastBestScore = Int.MinValue  // keep the best score of M-Bucket-I algorithm
       
-      (0 until nRows).foreach(row => {
+      (0 until overallRowSize).foreach(row => {
         // temporary assignment, the elements will be changed every row iteration
-        val assignment = Array.fill(nRows){Array.fill(nColumns){0}}
+        val assignment = Array.fill(overallRowSize){Array.fill(overalColumnSize){0}}
 
         // total area covered by all n bucket in this row iteration
         var totalAreaCount = List[Int]()
@@ -138,28 +157,43 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
         // (avoid continuing bucket id of previous row's last bucket)
         var bucketId = lastBucketId
 
-        // keep track of total number of row in every row iteration and reset total number of column
-        totalRowCount += horizontalCounts(row)
-        totalColumnCount = 0
+        // keep track of the row size for bucket(s) in every row iteration
+        totalRowCount = row - lastRow + 1
 
-        (0 until nColumns).foreach(column => {
+        // reset lastColumn and total number of column every row iteration
+        totalColumnCount = 0
+        lastColumn = 0
+
+        (0 until overalColumnSize).foreach(column => {
                     
-          // keep track of total number of column in every column iteration
-          totalColumnCount += verticalCounts(column)
+          // keep track of the column size for bucket(s) every column iteration
+          totalColumnCount = column - lastColumn + 1
           
-          // if exceed maxInput, add bucket (increase bucket id), 
-          // store totalAreaCount of this bucket, and reset totalColumnCount
-          if(totalRowCount + totalColumnCount > maxInput){
-            totalAreaCount :+= totalRowCount * totalColumnCount
-            totalColumnCount = verticalCounts(column)
+          // if exceed maxInput or maxOutput, add bucket (increase bucket id), 
+          // store totalAreaCount of this bucket, reset totalColumnCount and lastColumn
+          if(totalRowCount + totalColumnCount > maxInput || totalRowCount * totalColumnCount > maxOutput){
+            // println("cannot handle: " + totalRowCount + "," +  totalColumnCount)
+            totalAreaCount :+= totalRowCount * (totalColumnCount - 1)
+            lastColumn = column
+            totalColumnCount = 1
             bucketId += 1
           }
 
-          // mark the temporary assignment
+
+          // map actual column index, relative to histogram "marking" based on vertical counts          
+          val columnPosition = findPosition(column, verticalCounts)
+
           (lastRow to row).foreach(r => {
-            if(histogram(r)(column) == 1){
+            // map actual row index, relative to histogram "marking" based on horizontal counts
+            val rowPosition = findPosition(r, horizontalCounts)
+            
+            // assign if and only if the cell (row, column) falls into an "interesting" area
+            // which is already marked in histogram
+            if(histogram(rowPosition)(columnPosition) == 1){
+              // mark the temporary assignment in every column iteration
               assignment(r)(column) = bucketId
             }
+
           })
 
         })
@@ -169,20 +203,22 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
 
         // calculate and print score
         val score = totalAreaCount.sum / totalAreaCount.size
-        println("score=" + score + " for row=" + (row+1).toString + " with area=" + totalAreaCount.size)
+        
+        // // uncomment to see score every row iteration
+        // println("score=" + score + " for row=" + (row+1).toString + " with area=" + totalAreaCount.size)
 
         // update the final assignment if score is increasing
         if(score >= lastBestScore){
           lastBestScore = score
           (lastRow to row).foreach(r => {
-            (0 until nColumns).foreach(c => {
+            (0 until overalColumnSize).foreach(c => {
               finalAssignment(r)(c) = assignment(r)(c)
             })
           })
         }
         // else, reset the checkpoint (relative lastRow, etc) and increase last bucket id
         else{
-          println("current score is lower! Selecting last best score of: best score=" + lastBestScore)
+          // println("current score is lower! Selecting last best score of: best score=" + lastBestScore)
           lastBucketId = bucketId + 1
           lastRow = row
           totalRowCount = row
@@ -196,23 +232,34 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       if(lastBestScore == Int.MinValue){
         totalRowCount = 0
         totalColumnCount = 0
+        lastColumn = 0
 
-        (lastRow until nRows).foreach(r => {
+        (lastRow until overallRowSize).foreach(row => {
 
-          totalRowCount = horizontalCounts(r)
+          totalRowCount = row - lastRow + 1
 
-          (0 until nColumns).foreach(c => {
-            totalColumnCount += verticalCounts(c)
+          totalColumnCount = 0
 
-            // increase bucket id if total input (row + column) exceed maxInput
-            if(totalRowCount + totalColumnCount > maxInput){
+          // map actual row index, relative to histogram "marking" based on horizontal counts
+          val rowPosition = findPosition(row, horizontalCounts)
+          
+          (0 until overalColumnSize).foreach(column => {
+            totalColumnCount += column - lastColumn + 1
+
+            // increase bucket id if total input (row + column) exceed maxInput or total output (row * column) exceed maxOutput
+            if(totalRowCount + totalColumnCount > maxInput || totalRowCount * totalColumnCount > maxOutput){
               lastBucketId += 1
-              totalColumnCount = verticalCounts(c)
+              totalColumnCount = 1
+              lastColumn = column
             }
 
-            // mark and assign area into bucket
-            if (histogram(r)(c) == 1){
-              finalAssignment(r)(c) = lastBucketId
+            // map actual column index, relative to histogram "marking" based on vertical counts
+            val columnPosition = findPosition(column, verticalCounts)
+
+            // assign if and only if the cell (row, column) falls into an "interesting" area
+            if(histogram(rowPosition)(columnPosition) == 1){
+              // mark and assign area into bucket
+              finalAssignment(rowPosition)(columnPosition) = lastBucketId
             }
 
           })
@@ -224,9 +271,10 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
       finalAssignment
     }
 
-    println("\nBest Assignment: ")
-    bestAssignment.foreach(row => println(row.mkString("_")))
-    println()
+    // // uncomment to see final assignment (will print big matrix!)
+    // println("\nBest Assignment: ")
+    // bestAssignment.foreach(row => println(row.mkString("_")))
+    // println()
 
     // build a lookup map to resolve bucket id assigment into actual reducer id assignment
     // e.g. bucket id: 1,3,5,8 -> reducer id: 1,2,3,4
@@ -240,19 +288,25 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val leftAssignment = bestAssignment
     val rightAssignment = bestAssignment.transpose
 
+    // sort the data before final bucket & reducer assignment
+    val sortedRow = rdd1JoinAttribute.sortBy(value => value)
+    val sortedColumn = rdd2JoinAttribute.sortBy(value => value)
+
     // left "L" assignment
-    val leftRDDAssignment = rdd1.flatMap(row => {
-      val position = search(row.getInt(index1), horizontalBoundariesMod)
+    val leftRDDAssignment = sortedRow.zipWithIndex.flatMap(row => {
+      val value = row._1
+      val position = row._2.toInt
       leftAssignment(position).distinct.filter(assignment => assignment != 0).map( bucketId => 
-        (reducerIdsLookup(bucketId), ("L", row) ) 
+        (reducerIdsLookup(bucketId), ("L", value) ) 
       )
     })
 
     // right "R" assignment
-    val rightRDDAssignment = rdd2.flatMap(row => {
-      val position = search(row.getInt(index2), verticalBoundariesMod)
+    val rightRDDAssignment = sortedColumn.zipWithIndex.flatMap(row => {
+      val value = row._1
+      val position = row._2.toInt
       rightAssignment(position).distinct.filter(assignment => assignment != 0).map( bucketId => 
-        (reducerIdsLookup(bucketId), ("R", row) ) 
+        (reducerIdsLookup(bucketId), ("R", value) ) 
       )
     })
 
@@ -264,8 +318,8 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
     val result = {
       rddPartitioned.mapPartitionsWithIndex( (index, partitions) => {
         val list = partitions.toList
-        val left = list.filter(row => row._2._1 == "L").map(row => (row._1, row._2._2.getInt(index1))).iterator
-        val right = list.filter(row => row._2._1 == "R").map(row => (row._1, row._2._2.getInt(index2))).iterator
+        val left = list.filter(row => row._2._1 == "L").map(row => (row._1, row._2._2)).iterator
+        val right = list.filter(row => row._2._1 == "R").map(row => (row._1, row._2._2)).iterator
         
         val joinResult = local_thetajoin(left, right, op)
         joinResult
@@ -313,17 +367,7 @@ class ThetaJoin(numR: Long, numS: Long, reducers: Int, bucketsize: Int) extends 
    * return the sorted data as a list
    * */
   def sampleData(sampleSize: Int, joinAttribute: RDD[Int]): List[Int] = {
-    val samples = Array.fill(sampleSize){0}
-
-    for { i <- 0 until sampleSize } {
-      var sampleValue = joinAttribute.takeSample(false, 1)(0)
-      
-      while (samples.contains(sampleValue)) {
-        sampleValue = joinAttribute.takeSample(false, 1)(0)
-      }
-
-      samples(i) = sampleValue
-    }
+    val samples = joinAttribute.distinct.takeSample(false, sampleSize)
 
     quickSort(samples)
     samples.toList
