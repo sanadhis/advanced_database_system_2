@@ -8,6 +8,8 @@ CS422-Project2/.cache-tests
 CS422-Project2/bin/
 CS422-Project2/project/project
 .DS_Store
-CS422-Project2/src/test/resources/linorder_big.tbl
+*_big.tbl
+*_medium.tbl
+*log*
 output/
 docker/cs422-pr2/jars/cs422-project2_2.11-0.1.0.jar
