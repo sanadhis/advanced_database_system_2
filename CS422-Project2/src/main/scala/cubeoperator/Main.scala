@@ -44,7 +44,7 @@ object Main {
        CUBE BY lo_suppkey, lo_shipmode, lo_orderdate
      */
 
-    //res.saveAsTextFile(output)
+    res.saveAsTextFile(output)
 
     //Perform the same query using SparkSQL
     //    val q1 = df.cube("lo_suppkey","lo_shipmode","lo_orderdate")
