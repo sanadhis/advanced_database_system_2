@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# Test 1
+echo "###TEST1####"
+sbt "run-main cubeoperator.Main small 3 optimized 4"
+sbt "run-main cubeoperator.Main small 3 naive 4"
+sbt "run-main cubeoperator.Main medium 3 optimized 4"
+sbt "run-main cubeoperator.Main medium 3 naive 4"
+sbt "run-main cubeoperator.Main big 3 optimized 4"
+sbt "run-main cubeoperator.Main big 3 naive 4"
+
+# Test 2
+echo "###TEST2####"
+sbt "run-main cubeoperator.Main medium 3 optimized 4"
+sbt "run-main cubeoperator.Main medium 3 naive 4"
+sbt "run-main cubeoperator.Main medium 4 optimized 4"
+sbt "run-main cubeoperator.Main medium 4 naive 4"
+sbt "run-main cubeoperator.Main medium 5 optimized 4"
+sbt "run-main cubeoperator.Main medium 5 naive 4"
+sbt "run-main cubeoperator.Main medium 6 optimized 4"
+sbt "run-main cubeoperator.Main medium 6 naive 4"
+
+# Test 3
+echo "###TEST3####"
+sbt "run-main cubeoperator.Main medium 3 optimized 4"
+sbt "run-main cubeoperator.Main medium 3 naive 4"
+sbt "run-main cubeoperator.Main medium 3 optimized 8"
+sbt "run-main cubeoperator.Main medium 3 naive 8"
+sbt "run-main cubeoperator.Main medium 3 optimized 12"
+sbt "run-main cubeoperator.Main medium 3 naive 12"
+sbt "run-main cubeoperator.Main medium 3 optimized 16"
+sbt "run-main cubeoperator.Main medium 3 naive 16"
+sbt "run-main cubeoperator.Main medium 3 optimized 20"
+sbt "run-main cubeoperator.Main medium 3 naive 20"

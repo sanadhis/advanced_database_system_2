@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Test 1
+echo "###TEST1: Bucket Size####"
+sbt "run-main thetajoin.Main 10 100 2K"
+sbt "run-main thetajoin.Main 10 300 2K"
+sbt "run-main thetajoin.Main 10 500 2K"
+sbt "run-main thetajoin.Main 10 1000 2K"
+sbt "run-main thetajoin.Main 10 2000 2K"
+sbt "run-main thetajoin.Main 10 5000 2K"
+sbt "run-main thetajoin.Main 10 10000 2K"
+
+# Test 2
+echo "###TEST2: Number of Reducers####"
+sbt "run-main thetajoin.Main 5 1000 2K"
+sbt "run-main thetajoin.Main 10 1000 2K"
+sbt "run-main thetajoin.Main 15 1000 2K"
+sbt "run-main thetajoin.Main 20 1000 2K"
+sbt "run-main thetajoin.Main 25 1000 2K"
+sbt "run-main thetajoin.Main 30 1000 2K"
+sbt "run-main thetajoin.Main 50 1000 2K"
+sbt "run-main thetajoin.Main 100 1000 2K"
